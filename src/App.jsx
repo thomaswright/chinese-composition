@@ -350,7 +350,7 @@ function Dashboard({ db }) {
       {history.length > 0 && (
         <nav
           aria-label="Query history"
-          className="mt-3 px-3 text-sm text-gray-600"
+          className="mt-3 px-3 text-lg text-gray-600 border-t py-3 max-w-lg"
         >
           <div>History</div>
           <div className="flex flex-wrap items-center gap-3">
