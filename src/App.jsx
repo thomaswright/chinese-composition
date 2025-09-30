@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import initSqlJs from "sql.js";
 import wasm from "sql.js/dist/sql-wasm.wasm?url";
 
@@ -6,40 +6,64 @@ function uniqueById(arr, key) {
   return [...new Map(arr.map((obj) => [obj[key], obj])).values()];
 }
 
+const QUERY_PARAM = "value";
+
+function getQueryFromUrl() {
+  if (typeof window === "undefined") return "";
+
+  const params = new URLSearchParams(window.location.search);
+  return params.get(QUERY_PARAM) || "";
+}
+
 function Dashboard({ db }) {
-  const [query, setQuery] = useState(""); // input value
+  const [query, setQuery] = useState(() => getQueryFromUrl()); // input value
   const [results, setResults] = useState([]); // query results
   const [error, setError] = useState(null);
 
-  const fetchHanziRows = (column, value) => {
-    if (!value) return [];
+  useEffect(() => {
+    const handlePopState = () => {
+      setQuery(getQueryFromUrl());
+    };
 
-    if (column !== "traditional" && column !== "simplified") {
-      throw new Error(`Unsupported column: ${column}`);
-    }
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
 
-    const rows = [];
-    const stmt = db.prepare(`SELECT * FROM hanzi WHERE ${column} = ?`);
+  const fetchHanziRows = useCallback(
+    (column, value) => {
+      if (!db || !value) return [];
 
-    try {
-      stmt.bind([value]);
-
-      while (stmt.step()) {
-        rows.push(stmt.getAsObject());
+      if (column !== "traditional" && column !== "simplified") {
+        throw new Error(`Unsupported column: ${column}`);
       }
-    } finally {
-      stmt.free();
-    }
 
-    return rows;
-  };
+      const rows = [];
+      const stmt = db.prepare(`SELECT * FROM hanzi WHERE ${column} = ?`);
 
-  const runQuery = (value) => {
-    try {
-      if (!value) {
-        setResults([]);
-        return;
+      try {
+        stmt.bind([value]);
+
+        while (stmt.step()) {
+          rows.push(stmt.getAsObject());
+        }
+      } finally {
+        stmt.free();
       }
+
+      return rows;
+    },
+    [db]
+  );
+
+  const runQuery = useCallback(
+    (value) => {
+      if (!db) return;
+
+      try {
+        if (!value) {
+          setResults([]);
+          return;
+        }
 
       const traditionRows = fetchHanziRows("traditional", value);
       const simplifiedRows = fetchHanziRows("simplified", value);
@@ -138,6 +162,44 @@ function Dashboard({ db }) {
     } catch (err) {
       setError(err.toString());
     }
+  },
+    [db, fetchHanziRows]
+  );
+
+  useEffect(() => {
+    runQuery(query);
+  }, [query, runQuery]);
+
+  const updateQuery = useCallback((nextValue, { replace = false } = {}) => {
+    setQuery(nextValue);
+
+    if (typeof window === "undefined") return;
+
+    const params = new URLSearchParams(window.location.search);
+
+    if (nextValue) {
+      params.set(QUERY_PARAM, nextValue);
+    } else {
+      params.delete(QUERY_PARAM);
+    }
+
+    const search = params.toString();
+    const newUrl = search
+      ? `${window.location.pathname}?${search}`
+      : window.location.pathname;
+
+    const currentUrl = `${window.location.pathname}${window.location.search}`;
+    if (replace || newUrl === currentUrl) {
+      window.history.replaceState(null, "", newUrl);
+    } else {
+      window.history.pushState(null, "", newUrl);
+    }
+  }, []);
+
+  const handleSelectValue = (nextValue) => {
+    if (!nextValue) return;
+
+    updateQuery(nextValue);
   };
 
   return (
@@ -151,8 +213,7 @@ function Dashboard({ db }) {
         value={query}
         onChange={(e) => {
           const val = e.target.value;
-          setQuery(val);
-          runQuery(val);
+          updateQuery(val, { replace: true });
         }}
         className="p-2 border rounded"
       />
@@ -186,24 +247,34 @@ function Dashboard({ db }) {
                 <div className="pt-2 text-sm">
                   <div className="font-semibold">Components</div>
                   {row.leftDecomp && (
-                    <div>
-                      Left: {row.leftDecomp}
+                    <button
+                      type="button"
+                      onClick={() => handleSelectValue(row.leftDecomp)}
+                      className="w-full text-left text-blue-600 hover:underline flex items-center gap-1"
+                    >
+                      <span className="text-gray-800">Left:</span>
+                      <span>{row.leftDecomp}</span>
                       {row.leftKeyword && (
-                        <span className="ml-1 text-gray-600">
+                        <span className="text-gray-600">
                           ({row.leftKeyword})
                         </span>
                       )}
-                    </div>
+                    </button>
                   )}
                   {row.rightDecomp && (
-                    <div>
-                      Right: {row.rightDecomp}
+                    <button
+                      type="button"
+                      onClick={() => handleSelectValue(row.rightDecomp)}
+                      className="w-full text-left text-blue-600 hover:underline flex items-center gap-1"
+                    >
+                      <span className="text-gray-800">Right:</span>
+                      <span>{row.rightDecomp}</span>
                       {row.rightKeyword && (
-                        <span className="ml-1 text-gray-600">
+                        <span className="text-gray-600">
                           ({row.rightKeyword})
                         </span>
                       )}
-                    </div>
+                    </button>
                   )}
                 </div>
               )}
