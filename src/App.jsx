@@ -11,6 +11,29 @@ function Dashboard({ db }) {
   const [results, setResults] = useState([]); // query results
   const [error, setError] = useState(null);
 
+  const fetchHanziRows = (column, value) => {
+    if (!value) return [];
+
+    if (column !== "traditional" && column !== "simplified") {
+      throw new Error(`Unsupported column: ${column}`);
+    }
+
+    const rows = [];
+    const stmt = db.prepare(`SELECT * FROM hanzi WHERE ${column} = ?`);
+
+    try {
+      stmt.bind([value]);
+
+      while (stmt.step()) {
+        rows.push(stmt.getAsObject());
+      }
+    } finally {
+      stmt.free();
+    }
+
+    return rows;
+  };
+
   const runQuery = (value) => {
     try {
       if (!value) {
@@ -18,31 +41,100 @@ function Dashboard({ db }) {
         return;
       }
 
-      const traditionRows = [];
+      const traditionRows = fetchHanziRows("traditional", value);
+      const simplifiedRows = fetchHanziRows("simplified", value);
 
-      // Prepare the statement and bind the value
-      let stmt = db.prepare("SELECT * FROM hanzi WHERE traditional = ?");
-      stmt.bind([value]);
+      const matchedRows = uniqueById(
+        [...traditionRows, ...simplifiedRows],
+        "id"
+      );
 
-      while (stmt.step()) {
-        const row = stmt.getAsObject();
-        traditionRows.push(row);
+      if (!matchedRows.length) {
+        setResults([]);
+        return;
       }
-      stmt.free();
 
-      const simplifiedRows = [];
+      const decompositionStmt = db.prepare(
+        "SELECT left_component, right_component FROM hanzi_decomposition WHERE component = ?"
+      );
+      const keywordStmt = db.prepare(
+        "SELECT keyword FROM hanzi_keywords WHERE simplified = ?"
+      );
 
-      // Prepare the statement and bind the value
-      stmt = db.prepare("SELECT * FROM hanzi WHERE simplified = ?");
-      stmt.bind([value]);
+      const lookupDecomposition = (lookupValue) => {
+        if (!lookupValue) return { left: null, right: null };
 
-      while (stmt.step()) {
-        const row = stmt.getAsObject();
-        traditionRows.push(row);
+        decompositionStmt.bind([lookupValue]);
+
+        if (!decompositionStmt.step()) {
+          decompositionStmt.reset();
+          return { left: null, right: null };
+        }
+
+        const { left_component, right_component } =
+          decompositionStmt.getAsObject();
+        decompositionStmt.reset();
+
+        return {
+          left: left_component || null,
+          right: right_component || null,
+        };
+      };
+
+      const lookupKeyword = (lookupValue) => {
+        if (!lookupValue) return null;
+
+        keywordStmt.bind([lookupValue]);
+
+        if (!keywordStmt.step()) {
+          keywordStmt.reset();
+          return null;
+        }
+
+        const { keyword } = keywordStmt.getAsObject();
+        keywordStmt.reset();
+
+        return keyword || null;
+      };
+
+      const fetchComponentRows = (lookupValue) => {
+        if (!lookupValue) return [];
+
+        return uniqueById(
+          [
+            ...fetchHanziRows("traditional", lookupValue),
+            ...fetchHanziRows("simplified", lookupValue),
+          ],
+          "id"
+        );
+      };
+
+      try {
+        const { left: leftDecomp, right: rightDecomp } =
+          lookupDecomposition(value);
+
+        const leftDecompRows = fetchComponentRows(leftDecomp);
+        const rightDecompRows = fetchComponentRows(rightDecomp);
+        const keyword = lookupKeyword(value);
+        const leftKeyword = lookupKeyword(leftDecomp);
+        const rightKeyword = lookupKeyword(rightDecomp);
+
+        const enrichedRows = matchedRows.map((row) => ({
+          ...row,
+          leftDecomp,
+          rightDecomp,
+          leftDecompRows,
+          rightDecompRows,
+          keyword,
+          leftKeyword,
+          rightKeyword,
+        }));
+
+        setResults(enrichedRows);
+      } finally {
+        decompositionStmt.free();
+        keywordStmt.free();
       }
-      stmt.free();
-
-      setResults(uniqueById([...traditionRows, ...simplifiedRows], "id"));
     } catch (err) {
       setError(err.toString());
     }
@@ -67,10 +159,57 @@ function Dashboard({ db }) {
 
       {error && <div style={{ color: "red" }}>{error}</div>}
 
-      <div className="">
-        {results.map((x, i) => (
-          <div key={i}>{JSON.stringify(x)}</div>
-        ))}
+      <div className="space-y-4 mt-4">
+        {results.map((row) => {
+          return (
+            <div
+              key={row.id ?? row.simplified}
+              className="border p-3 rounded space-y-1"
+            >
+              <div className="font-semibold text-lg">
+                {row.simplified}{" "}
+                {row.traditional !== row.simplified
+                  ? `(${row.traditional})`
+                  : ""}
+                {row.keyword && (
+                  <span className="ml-2 text-sm font-normal text-amber-600">
+                    ({row.keyword})
+                  </span>
+                )}
+              </div>
+              {row.pinyin && (
+                <div className="text-sm text-gray-600">{row.pinyin}</div>
+              )}
+              {row.english && <div className="text-sm">{row.english}</div>}
+
+              {(row.leftDecomp || row.rightDecomp) && (
+                <div className="pt-2 text-sm">
+                  <div className="font-semibold">Components</div>
+                  {row.leftDecomp && (
+                    <div>
+                      Left: {row.leftDecomp}
+                      {row.leftKeyword && (
+                        <span className="ml-1 text-gray-600">
+                          ({row.leftKeyword})
+                        </span>
+                      )}
+                    </div>
+                  )}
+                  {row.rightDecomp && (
+                    <div>
+                      Right: {row.rightDecomp}
+                      {row.rightKeyword && (
+                        <span className="ml-1 text-gray-600">
+                          ({row.rightKeyword})
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
