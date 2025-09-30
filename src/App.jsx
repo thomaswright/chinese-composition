@@ -30,15 +30,10 @@ function Dashboard({ db }) {
   const [results, setResults] = useState([]); // query results
   const [error, setError] = useState(null);
   const [decomposition, setDecomposition] = useState(createEmptyDecomposition);
-
-  useEffect(() => {
-    const handlePopState = () => {
-      setQuery(getQueryFromUrl());
-    };
-
-    window.addEventListener("popstate", handlePopState);
-    return () => window.removeEventListener("popstate", handlePopState);
-  }, []);
+  const [history, setHistory] = useState(() => {
+    const initialValue = getQueryFromUrl();
+    return initialValue ? [initialValue] : [];
+  });
 
   const fetchHanziRows = useCallback(
     (column, value) => {
@@ -66,6 +61,19 @@ function Dashboard({ db }) {
     [db]
   );
 
+  const recordHistory = useCallback((value) => {
+    if (!value) return;
+
+    const trimmedValue = value.trim();
+    if (!trimmedValue) return;
+
+    setHistory((prevHistory) => {
+      const nextHistory = prevHistory.filter((item) => item !== trimmedValue);
+      nextHistory.push(trimmedValue);
+      return nextHistory.slice(-10);
+    });
+  }, []);
+
   const runQuery = useCallback(
     (value) => {
       if (!db) return;
@@ -76,6 +84,8 @@ function Dashboard({ db }) {
           setDecomposition(createEmptyDecomposition());
           return;
         }
+
+        recordHistory(value);
 
         const traditionRows = fetchHanziRows("traditional", value);
         const simplifiedRows = fetchHanziRows("simplified", value);
@@ -183,38 +193,56 @@ function Dashboard({ db }) {
         setError(err.toString());
       }
     },
-    [db, fetchHanziRows]
+    [db, fetchHanziRows, recordHistory]
   );
 
   useEffect(() => {
     runQuery(query);
   }, [query, runQuery]);
 
-  const updateQuery = useCallback((nextValue, { replace = false } = {}) => {
-    setQuery(nextValue);
+  useEffect(() => {
+    const handlePopState = () => {
+      const nextValue = getQueryFromUrl();
+      setQuery(nextValue);
+      recordHistory(nextValue ?? "");
+    };
 
-    if (typeof window === "undefined") return;
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, [recordHistory]);
 
-    const params = new URLSearchParams(window.location.search);
+  const updateQuery = useCallback(
+    (nextValue, { replace = false } = {}) => {
+      setQuery(nextValue);
 
-    if (nextValue) {
-      params.set(QUERY_PARAM, nextValue);
-    } else {
-      params.delete(QUERY_PARAM);
-    }
+      if (!replace) {
+        recordHistory(nextValue ?? "");
+      }
 
-    const search = params.toString();
-    const newUrl = search
-      ? `${window.location.pathname}?${search}`
-      : window.location.pathname;
+      if (typeof window === "undefined") return;
 
-    const currentUrl = `${window.location.pathname}${window.location.search}`;
-    if (replace || newUrl === currentUrl) {
-      window.history.replaceState(null, "", newUrl);
-    } else {
-      window.history.pushState(null, "", newUrl);
-    }
-  }, []);
+      const params = new URLSearchParams(window.location.search);
+
+      if (nextValue) {
+        params.set(QUERY_PARAM, nextValue);
+      } else {
+        params.delete(QUERY_PARAM);
+      }
+
+      const search = params.toString();
+      const newUrl = search
+        ? `${window.location.pathname}?${search}`
+        : window.location.pathname;
+
+      const currentUrl = `${window.location.pathname}${window.location.search}`;
+      if (replace || newUrl === currentUrl) {
+        window.history.replaceState(null, "", newUrl);
+      } else {
+        window.history.pushState(null, "", newUrl);
+      }
+    },
+    [recordHistory]
+  );
 
   const handleSelectValue = (nextValue) => {
     if (!nextValue) return;
@@ -224,24 +252,32 @@ function Dashboard({ db }) {
 
   return (
     <div className="p-3">
-      <h1 className="text-amber-500 ">Chinese Composition</h1>
+      <h1 className="pb-2 px-3 font-black text-gray-500">
+        Character Composition
+      </h1>
 
-      {/* Search Input */}
       <input
         type="text"
-        placeholder="Enter traditional character…"
+        placeholder="Enter character…"
         value={query}
         onChange={(e) => {
           const val = e.target.value;
           updateQuery(val, { replace: true });
         }}
-        className="p-2 border rounded"
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            const val = e.currentTarget.value.trim();
+            updateQuery(val);
+          }
+        }}
+        className="mt-1 px-3 py-1 border rounded text-lg"
       />
 
       {error && <div style={{ color: "red" }}>{error}</div>}
 
-      {(decomposition.left || decomposition.right) && (
-        <div className="mt-4 border p-3 rounded py-2 text-sm flex flex-row justify-start gap-1 items-center">
+      {(decomposition.left || decomposition.right) &&
+      decomposition.right !== "*" ? (
+        <div className="mt-2 px-3  py-2 text-lg flex flex-row justify-start gap-1 items-center">
           {decomposition.left && (
             <button
               type="button"
@@ -287,15 +323,16 @@ function Dashboard({ db }) {
             </button>
           )}
         </div>
+      ) : (
+        <div className="mt-2 px-3  py-2 text-lg flex flex-row justify-start gap-1 items-center">
+          No Decomposition
+        </div>
       )}
 
-      <div className="space-y-4 mt-4">
+      <div className="space-y-4 mt-3 divide-y border-t max-w-lg">
         {results.map((row) => {
           return (
-            <div
-              key={row.id ?? row.simplified}
-              className="border  p-3 rounded space-y-1"
-            >
+            <div key={row.id ?? row.simplified} className="  p-3 space-y-1">
               <div className="font-semibold text-lg">
                 {row.simplified}{" "}
                 {row.traditional !== row.simplified
@@ -310,6 +347,29 @@ function Dashboard({ db }) {
           );
         })}
       </div>
+      {history.length > 0 && (
+        <nav
+          aria-label="Query history"
+          className="mt-3 px-3 text-sm text-gray-600"
+        >
+          <div>History</div>
+          <div className="flex flex-wrap items-center gap-3">
+            {history.map((item, index) => {
+              return (
+                <div key={item} className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleSelectValue(item)}
+                    className="text-blue-600 hover:underline"
+                  >
+                    {item}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </nav>
+      )}
     </div>
   );
 }
