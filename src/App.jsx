@@ -18,6 +18,7 @@ function getQueryFromUrl() {
 function createEmptyDecomposition() {
   return {
     valueKeyword: null,
+    valueBookOrder: null,
     left: null,
     right: null,
     leftKeyword: null,
@@ -25,11 +26,63 @@ function createEmptyDecomposition() {
   };
 }
 
+function createEmptyBookOrderNav() {
+  return {
+    current: null,
+    previous: null,
+    next: null,
+  };
+}
+
+function BookOrderNavigator({ navigation, onSelect }) {
+  const current = navigation?.current;
+
+  if (!current || current.bookOrder == null) {
+    return null;
+  }
+
+  const hasPrevious = Boolean(navigation?.previous?.simplified);
+  const hasNext = Boolean(navigation?.next?.simplified);
+
+  return (
+    <div className="flex items-center gap-2">
+      <button
+        type="button"
+        onClick={() => {
+          if (hasPrevious) {
+            onSelect(navigation.previous.simplified);
+          }
+        }}
+        disabled={!hasPrevious}
+        className="px-2 py-1 border rounded text-lg leading-none disabled:opacity-40 disabled:cursor-not-allowed"
+      >
+        {"<"}
+      </button>
+      <span className="text-sm text-gray-600 whitespace-nowrap">
+        {current.bookOrder}
+      </span>
+      <button
+        type="button"
+        onClick={() => {
+          if (hasNext) {
+            onSelect(navigation.next.simplified);
+          }
+        }}
+        disabled={!hasNext}
+        className="px-2 py-1 border rounded text-lg leading-none disabled:opacity-40 disabled:cursor-not-allowed"
+      >
+        {">"}
+      </button>
+    </div>
+  );
+}
+
 function Dashboard({ db }) {
   const [query, setQuery] = useState(() => getQueryFromUrl()); // input value
   const [results, setResults] = useState([]); // query results
   const [error, setError] = useState(null);
   const [decomposition, setDecomposition] = useState(createEmptyDecomposition);
+  const [bookOrderNav, setBookOrderNav] = useState(createEmptyBookOrderNav);
   const [history, setHistory] = useState(() => {
     const initialValue = getQueryFromUrl();
     return initialValue ? [initialValue] : [];
@@ -82,6 +135,7 @@ function Dashboard({ db }) {
         if (!value) {
           setResults([]);
           setDecomposition(createEmptyDecomposition());
+          setBookOrderNav(createEmptyBookOrderNav());
           return;
         }
 
@@ -98,6 +152,7 @@ function Dashboard({ db }) {
         if (!matchedRows.length) {
           setResults([]);
           setDecomposition(createEmptyDecomposition());
+          setBookOrderNav(createEmptyBookOrderNav());
           return;
         }
 
@@ -105,7 +160,13 @@ function Dashboard({ db }) {
           "SELECT left_component, right_component FROM hanzi_decomposition WHERE component = ?"
         );
         const keywordStmt = db.prepare(
-          "SELECT keyword FROM hanzi_keywords WHERE simplified = ?"
+          "SELECT keyword, book_order FROM hanzi_keywords WHERE simplified = ?"
+        );
+        const previousBookOrderStmt = db.prepare(
+          "SELECT simplified, book_order FROM hanzi_keywords WHERE book_order < ? ORDER BY book_order DESC LIMIT 1"
+        );
+        const nextBookOrderStmt = db.prepare(
+          "SELECT simplified, book_order FROM hanzi_keywords WHERE book_order > ? ORDER BY book_order ASC LIMIT 1"
         );
 
         const lookupDecomposition = (lookupValue) => {
@@ -138,10 +199,13 @@ function Dashboard({ db }) {
             return null;
           }
 
-          const { keyword } = keywordStmt.getAsObject();
+          const { keyword, book_order } = keywordStmt.getAsObject();
           keywordStmt.reset();
 
-          return keyword || null;
+          return {
+            keyword: keyword || null,
+            bookOrder: typeof book_order === "number" ? book_order : null,
+          };
         };
 
         const fetchComponentRows = (lookupValue) => {
@@ -162,9 +226,36 @@ function Dashboard({ db }) {
 
           const leftDecompRows = fetchComponentRows(leftDecomp);
           const rightDecompRows = fetchComponentRows(rightDecomp);
-          const keyword = lookupKeyword(value);
-          const leftKeyword = lookupKeyword(leftDecomp);
-          const rightKeyword = lookupKeyword(rightDecomp);
+          const keywordData = lookupKeyword(value);
+          const keyword = keywordData?.keyword ?? null;
+          const leftKeyword = lookupKeyword(leftDecomp)?.keyword ?? null;
+          const rightKeyword = lookupKeyword(rightDecomp)?.keyword ?? null;
+          const valueBookOrder = keywordData?.bookOrder ?? null;
+
+          const getNeighbor = (stmt, order) => {
+            if (typeof order !== "number") return null;
+
+            stmt.bind([order]);
+
+            if (!stmt.step()) {
+              stmt.reset();
+              return null;
+            }
+
+            const { simplified, book_order } = stmt.getAsObject();
+            stmt.reset();
+
+            return {
+              simplified: simplified || null,
+              bookOrder: typeof book_order === "number" ? book_order : null,
+            };
+          };
+
+          const previousBook = getNeighbor(
+            previousBookOrderStmt,
+            valueBookOrder
+          );
+          const nextBook = getNeighbor(nextBookOrderStmt, valueBookOrder);
 
           const enrichedRows = matchedRows.map((row) => ({
             ...row,
@@ -179,18 +270,30 @@ function Dashboard({ db }) {
 
           setDecomposition({
             valueKeyword: keyword,
+            valueBookOrder,
             left: leftDecomp,
             right: rightDecomp,
             leftKeyword,
             rightKeyword,
           });
+          setBookOrderNav({
+            current:
+              valueBookOrder != null
+                ? { simplified: value, bookOrder: valueBookOrder }
+                : null,
+            previous: previousBook,
+            next: nextBook,
+          });
           setResults(enrichedRows);
         } finally {
           decompositionStmt.free();
           keywordStmt.free();
+          previousBookOrderStmt.free();
+          nextBookOrderStmt.free();
         }
       } catch (err) {
         setError(err.toString());
+        setBookOrderNav(createEmptyBookOrderNav());
       }
     },
     [db, fetchHanziRows, recordHistory]
@@ -256,22 +359,28 @@ function Dashboard({ db }) {
         Character Composition
       </h1>
 
-      <input
-        type="text"
-        placeholder="Enter character…"
-        value={query}
-        onChange={(e) => {
-          const val = e.target.value;
-          updateQuery(val, { replace: true });
-        }}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") {
-            const val = e.currentTarget.value.trim();
-            updateQuery(val);
-          }
-        }}
-        className="mt-1 px-3 py-1 border rounded text-lg"
-      />
+      <div className="mt-1 flex items-center gap-3 max-w-lg">
+        <input
+          type="text"
+          placeholder="Enter character…"
+          value={query}
+          onChange={(e) => {
+            const val = e.target.value;
+            updateQuery(val, { replace: true });
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              const val = e.currentTarget.value.trim();
+              updateQuery(val);
+            }
+          }}
+          className="flex-1 px-3 py-1 border rounded text-lg"
+        />
+        <BookOrderNavigator
+          navigation={bookOrderNav}
+          onSelect={handleSelectValue}
+        />
+      </div>
 
       {error && <div style={{ color: "red" }}>{error}</div>}
 
@@ -331,6 +440,12 @@ function Dashboard({ db }) {
 
       <div className="space-y-4 mt-3 divide-y border-t max-w-lg">
         {results.map((row) => {
+          const englishMeanings = row.english
+            ? row.english
+                .split("/")
+                .map((item) => item.trim())
+                .filter(Boolean)
+            : [];
           return (
             <div key={row.id ?? row.simplified} className="  p-3 space-y-1">
               <div className="font-semibold text-lg">
@@ -342,7 +457,14 @@ function Dashboard({ db }) {
               {row.pinyin && (
                 <div className="text-sm text-gray-600">{row.pinyin}</div>
               )}
-              {row.english && <div className="text-sm">{row.english}</div>}
+              {englishMeanings.map((meaning, index) => (
+                <div
+                  key={`${row.id ?? row.simplified}-meaning-${index}`}
+                  className="text-sm"
+                >
+                  {meaning}
+                </div>
+              ))}
             </div>
           );
         })}
