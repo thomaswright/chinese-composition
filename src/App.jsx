@@ -746,7 +746,6 @@ function Dashboard({ db }) {
           leftKeyword,
           rightKeyword,
         });
-        console.log(keywordData);
         setBookOrderNav({
           current:
             valueBookOrder != null
@@ -848,10 +847,7 @@ function Dashboard({ db }) {
     }
   };
 
-  const updateView = (
-    nextView,
-    { replace = false, queryValue } = {}
-  ) => {
+  const updateView = (nextView, { replace = false, queryValue } = {}) => {
     const normalizedView = normalizeView(nextView);
     setView(normalizedView);
 
