@@ -12,6 +12,9 @@ dist
 dist-ssr
 *.local
 
+# Databases
+public/chinese.db
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
