@@ -7,12 +7,34 @@ function uniqueById(arr, key) {
 }
 
 const QUERY_PARAM = "value";
+const VIEW_PARAM = "view";
+const VIEW_KEYWORDS = "keywords";
+const DEFAULT_VIEW = "definition";
+
+function normalizeView(value) {
+  return value === VIEW_KEYWORDS ? VIEW_KEYWORDS : DEFAULT_VIEW;
+}
 
 function getQueryFromUrl() {
   if (typeof window === "undefined") return "";
 
   const params = new URLSearchParams(window.location.search);
   return params.get(QUERY_PARAM) || "";
+}
+
+function getViewFromUrl() {
+  if (typeof window === "undefined") return DEFAULT_VIEW;
+
+  const params = new URLSearchParams(window.location.search);
+  return normalizeView(params.get(VIEW_PARAM));
+}
+
+function applyViewParam(params, viewValue) {
+  if (normalizeView(viewValue) === VIEW_KEYWORDS) {
+    params.set(VIEW_PARAM, VIEW_KEYWORDS);
+  } else {
+    params.delete(VIEW_PARAM);
+  }
 }
 
 function createEmptyDecomposition() {
@@ -206,10 +228,9 @@ function Dashboard({ db }) {
   const [error, setError] = useState(null);
   const [decomposition, setDecomposition] = useState(createEmptyDecomposition);
   const [bookOrderNav, setBookOrderNav] = useState(createEmptyBookOrderNav);
-  const [showAllKeywords, setShowAllKeywords] = useState(false);
+  const [view, setView] = useState(() => getViewFromUrl());
   const [allKeywords, setAllKeywords] = useState([]);
   const [loadingKeywords, setLoadingKeywords] = useState(false);
-  const [savedQuery, setSavedQuery] = useState(null);
   const [history, setHistory] = useState(() => {
     const initialValue = getQueryFromUrl();
     return initialValue ? [initialValue] : [];
@@ -461,6 +482,7 @@ function Dashboard({ db }) {
       const nextValue = getQueryFromUrl();
       setQuery(nextValue);
       recordHistory(nextValue ?? "");
+      setView(getViewFromUrl());
     };
 
     window.addEventListener("popstate", handlePopState);
@@ -491,6 +513,8 @@ function Dashboard({ db }) {
         params.delete(QUERY_PARAM);
       }
 
+      applyViewParam(params, view);
+
       const search = params.toString();
       const newUrl = search
         ? `${window.location.pathname}?${search}`
@@ -503,56 +527,102 @@ function Dashboard({ db }) {
         window.history.pushState(null, "", newUrl);
       }
     },
-    [recordHistory]
+    [recordHistory, view]
+  );
+
+  const updateView = useCallback(
+    (nextView, { replace = false } = {}) => {
+      const normalizedView = normalizeView(nextView);
+      setView(normalizedView);
+
+      if (typeof window === "undefined") return;
+
+      const params = new URLSearchParams(window.location.search);
+
+      if (query) {
+        params.set(QUERY_PARAM, query);
+      } else {
+        params.delete(QUERY_PARAM);
+      }
+
+      applyViewParam(params, normalizedView);
+
+      const search = params.toString();
+      const newUrl = search
+        ? `${window.location.pathname}?${search}`
+        : window.location.pathname;
+
+      const currentUrl = `${window.location.pathname}${window.location.search}`;
+      if (replace || newUrl === currentUrl) {
+        window.history.replaceState(null, "", newUrl);
+      } else {
+        window.history.pushState(null, "", newUrl);
+      }
+    },
+    [query]
+  );
+
+  const handleSelectViewTab = useCallback(
+    (nextView) => {
+      const normalized = normalizeView(nextView);
+      if (normalized === view) return;
+      updateView(normalized);
+    },
+    [updateView, view]
   );
 
   const handleSelectValue = useCallback(
     (nextValue) => {
       if (!nextValue) return;
 
-      setSavedQuery(null);
-      setShowAllKeywords(false);
       updateQuery(nextValue);
+
+      if (view !== DEFAULT_VIEW) {
+        updateView(DEFAULT_VIEW, { replace: true });
+      }
     },
-    [updateQuery]
+    [updateQuery, updateView, view]
   );
 
-  const handleToggleKeywordList = () => {
-    const next = !showAllKeywords;
-    const trimmedCurrent = query?.trim();
+  const trimmedQuery = (query ?? "").trim();
+  const isKeywordView = view === VIEW_KEYWORDS;
+  const isDefinitionView = !isKeywordView;
 
-    if (next) {
-      setSavedQuery(trimmedCurrent || null);
-
-      if (query) {
-        updateQuery("", { replace: true });
-      }
-    } else {
-      if (!query && savedQuery) {
-        updateQuery(savedQuery, { replace: true });
-      }
-
-      setSavedQuery(null);
-    }
-
-    setShowAllKeywords(next);
-  };
-
-  const hasQuery = Boolean(query && query.trim());
-  const shouldShowKeywordList = showAllKeywords && !hasQuery;
+  const tabButtonClass = (tab) =>
+    `px-3 py-1 text-sm border rounded transition-colors ${
+      view === tab
+        ? "border-blue-500 bg-blue-50 text-blue-700"
+        : "border-transparent text-gray-600 hover:border-gray-300"
+    }`;
 
   return (
     <div className="p-3">
-      <div className="pb-2 px-3 flex items-center gap-3">
+      <div className="pb-2 px-3">
         <h1 className="font-black text-gray-500">Character Composition</h1>
-        <button
-          type="button"
-          onClick={handleToggleKeywordList}
-          aria-pressed={showAllKeywords}
-          className="ml-auto px-3 py-1 border rounded text-sm text-gray-700 hover:bg-gray-50"
+        <div
+          role="tablist"
+          aria-label="View selection"
+          className="mt-3 flex gap-2"
         >
-          {showAllKeywords ? "Hide keywords" : "Browse keywords"}
-        </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={view === DEFAULT_VIEW}
+            className={tabButtonClass(DEFAULT_VIEW)}
+            onClick={() => handleSelectViewTab(DEFAULT_VIEW)}
+          >
+            Definition
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={view === VIEW_KEYWORDS}
+            className={tabButtonClass(VIEW_KEYWORDS)}
+            onClick={() => handleSelectViewTab(VIEW_KEYWORDS)}
+          >
+            Keyword List
+          </button>
+        </div>
       </div>
 
       <div className="mt-1 flex items-center gap-3 max-w-lg">
@@ -562,13 +632,11 @@ function Dashboard({ db }) {
           value={query}
           onChange={(e) => {
             const val = e.target.value;
-            setSavedQuery(null);
             updateQuery(val, { replace: true });
           }}
           onKeyDown={(e) => {
             if (e.key === "Enter") {
               const val = e.currentTarget.value.trim();
-              setSavedQuery(null);
               updateQuery(val);
             }
           }}
@@ -586,11 +654,11 @@ function Dashboard({ db }) {
         keywords={allKeywords}
         loading={loadingKeywords}
         onSelect={handleSelectValue}
-        activeSimplified={savedQuery}
-        isVisible={shouldShowKeywordList}
+        activeSimplified={trimmedQuery || null}
+        isVisible={isKeywordView}
       />
 
-      <div hidden={shouldShowKeywordList} aria-hidden={shouldShowKeywordList}>
+      <div hidden={!isDefinitionView} aria-hidden={!isDefinitionView}>
         {(decomposition.left || decomposition.right) &&
         decomposition.right !== "*" ? (
           <div className="mt-2 px-3  py-2 text-lg flex flex-row justify-start gap-1 items-center">
