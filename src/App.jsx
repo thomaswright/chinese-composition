@@ -65,6 +65,119 @@ function pushHistory(prevHistory, value) {
   return nextHistory.slice(-10);
 }
 
+function useContainerMetrics({
+  containerRef,
+  isActive,
+  itemSelector = "button",
+  defaultItemHeight = 48,
+  dependencies = [],
+}) {
+  const [containerHeight, setContainerHeight] = useState(0);
+  const [itemHeight, setItemHeight] = useState(defaultItemHeight);
+
+  useEffect(() => {
+    if (!isActive) return;
+
+    const element = containerRef.current;
+    if (!element) return;
+
+    const measure = () => {
+      setContainerHeight(element.clientHeight);
+
+      if (!itemSelector) return;
+
+      const sample = element.querySelector(itemSelector);
+      if (!sample) return;
+
+      const { height } = sample.getBoundingClientRect();
+      if (height) {
+        setItemHeight(height);
+      }
+    };
+
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, [containerRef, isActive, itemSelector, defaultItemHeight, ...dependencies]);
+
+  return { containerHeight, itemHeight };
+}
+
+function useScrollPosition(isActive) {
+  const [scrollTop, setScrollTop] = useState(0);
+
+  useEffect(() => {
+    if (!isActive) {
+      setScrollTop(0);
+    }
+  }, [isActive]);
+
+  const handleScroll = (event) => {
+    setScrollTop(event.currentTarget.scrollTop);
+  };
+
+  return { scrollTop, setScrollTop, handleScroll };
+}
+
+function useScrollToIndex({
+  containerRef,
+  isActive,
+  index,
+  itemHeight,
+  containerHeight,
+  setScrollTop,
+}) {
+  useEffect(() => {
+    if (!isActive) return;
+
+    const element = containerRef.current;
+    if (!element) return;
+
+    if (index < 0 || itemHeight <= 0 || containerHeight <= 0) {
+      return;
+    }
+
+    const targetScroll = Math.max(
+      0,
+      index * itemHeight - containerHeight / 2 + itemHeight / 2
+    );
+
+    if (Math.abs(element.scrollTop - targetScroll) > 1) {
+      element.scrollTop = targetScroll;
+      setScrollTop(targetScroll);
+    }
+  }, [
+    containerRef,
+    isActive,
+    index,
+    itemHeight,
+    containerHeight,
+    setScrollTop,
+  ]);
+}
+
+function useVirtualList({
+  itemCount,
+  itemHeight,
+  containerHeight,
+  scrollTop,
+  overscan = 8,
+}) {
+  const safeHeight = itemHeight > 0 ? itemHeight : 1;
+  const totalHeight = itemCount * safeHeight;
+  const startIndex = Math.max(
+    0,
+    Math.floor(scrollTop / safeHeight) - overscan
+  );
+  const endIndex = Math.min(
+    itemCount,
+    Math.ceil((scrollTop + containerHeight) / safeHeight) + overscan
+  );
+  const offsetY = startIndex * safeHeight;
+
+  return { totalHeight, startIndex, endIndex, offsetY };
+}
+
 function LucideChevronLeft({ className }) {
   return (
     <svg
@@ -154,59 +267,24 @@ function KeywordList({
   isVisible,
 }) {
   const containerRef = useRef(null);
-  const [scrollTop, setScrollTop] = useState(0);
-  const [containerHeight, setContainerHeight] = useState(0);
-  const [itemHeight, setItemHeight] = useState(48);
+  const { scrollTop, setScrollTop, handleScroll } = useScrollPosition(isVisible);
+  const { containerHeight, itemHeight } = useContainerMetrics({
+    containerRef,
+    isActive: isVisible,
+    dependencies: [loading, keywords.length],
+  });
+  const activeIndex = keywords.findIndex(
+    (item) => item.simplified === activeSimplified
+  );
 
-  useEffect(() => {
-    if (!isVisible) {
-      return;
-    }
-
-    const el = containerRef.current;
-    if (!el) return;
-
-    const updateMetrics = () => {
-      setContainerHeight(el.clientHeight);
-
-      const firstButton = el.querySelector("button");
-      if (firstButton) {
-        const measuredHeight = firstButton.getBoundingClientRect().height;
-        if (measuredHeight) {
-          setItemHeight(measuredHeight);
-        }
-      }
-    };
-
-    updateMetrics();
-    window.addEventListener("resize", updateMetrics);
-    return () => window.removeEventListener("resize", updateMetrics);
-  }, [isVisible, loading, keywords.length]);
-
-  useEffect(() => {
-    if (!isVisible) return;
-
-    const el = containerRef.current;
-    if (!el) return;
-
-    const activeIndex = keywords.findIndex(
-      (item) => item.simplified === activeSimplified
-    );
-
-    if (activeIndex < 0 || itemHeight <= 0 || containerHeight <= 0) {
-      return;
-    }
-
-    const targetScroll = Math.max(
-      0,
-      activeIndex * itemHeight - containerHeight / 2 + itemHeight / 2
-    );
-
-    if (Math.abs(el.scrollTop - targetScroll) > 1) {
-      el.scrollTop = targetScroll;
-      setScrollTop(targetScroll);
-    }
-  }, [isVisible, activeSimplified, keywords, itemHeight, containerHeight]);
+  useScrollToIndex({
+    containerRef,
+    isActive: isVisible && !loading,
+    index: activeIndex,
+    itemHeight,
+    containerHeight,
+    setScrollTop,
+  });
 
   if (!isVisible) {
     return null;
@@ -228,27 +306,20 @@ function KeywordList({
     );
   }
 
-  const overscan = 8;
-  const totalHeight = keywords.length * itemHeight;
-  const startIndex = Math.max(
-    0,
-    Math.floor(scrollTop / itemHeight) - overscan
-  );
-  const endIndex = Math.min(
-    keywords.length,
-    Math.ceil((scrollTop + containerHeight) / itemHeight) + overscan
-  );
+  const { totalHeight, startIndex, endIndex, offsetY } = useVirtualList({
+    itemCount: keywords.length,
+    itemHeight,
+    containerHeight,
+    scrollTop,
+  });
   const itemsToRender = keywords.slice(startIndex, endIndex);
-  const offsetY = startIndex * itemHeight;
 
   return (
     <div className="mt-3 border rounded max-w-lg overflow-hidden">
       <div
         ref={containerRef}
         className="max-h-80 overflow-y-auto"
-        onScroll={(event) => {
-          setScrollTop(event.currentTarget.scrollTop);
-        }}
+        onScroll={handleScroll}
       >
         <div style={{ height: totalHeight, position: "relative" }}>
           <div
