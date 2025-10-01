@@ -290,6 +290,191 @@ function KeywordList({
   );
 }
 
+function ViewTabs({ view, onSelect }) {
+  const tabButtonClass = (tab) =>
+    `px-3 py-1 text-sm border rounded transition-colors ${
+      view === tab
+        ? "border-blue-500 bg-blue-50 text-blue-700"
+        : "border-transparent text-gray-600 hover:border-gray-300"
+    }`;
+
+  return (
+    <div role="tablist" aria-label="View selection" className="mt-3 flex gap-2">
+      <button
+        type="button"
+        role="tab"
+        aria-selected={view === DEFAULT_VIEW}
+        className={tabButtonClass(DEFAULT_VIEW)}
+        onClick={() => onSelect(DEFAULT_VIEW)}
+      >
+        Definition
+      </button>
+      <button
+        type="button"
+        role="tab"
+        aria-selected={view === VIEW_KEYWORDS}
+        className={tabButtonClass(VIEW_KEYWORDS)}
+        onClick={() => onSelect(VIEW_KEYWORDS)}
+      >
+        Keyword List
+      </button>
+    </div>
+  );
+}
+
+function SearchBar({
+  query,
+  onQueryChange,
+  onQuerySubmit,
+  bookOrderNav,
+  onSelectValue,
+}) {
+  return (
+    <div className="mt-1 flex items-center gap-3 max-w-lg">
+      <input
+        type="text"
+        placeholder="Enter character…"
+        value={query}
+        onChange={(event) => onQueryChange(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            onQuerySubmit(event.currentTarget.value);
+          }
+        }}
+        className="flex-1 px-3 py-1 border rounded text-lg"
+      />
+      <BookOrderNavigator navigation={bookOrderNav} onSelect={onSelectValue} />
+    </div>
+  );
+}
+
+function DefinitionView({
+  isVisible,
+  decomposition,
+  query,
+  results,
+  onSelectValue,
+}) {
+  if (!isVisible) {
+    return null;
+  }
+
+  const showDecomposition =
+    (decomposition.left || decomposition.right) && decomposition.right !== "*";
+
+  return (
+    <div>
+      {showDecomposition ? (
+        <div className="mt-2 px-3  py-2 text-lg flex flex-row justify-start gap-1 items-center">
+          {decomposition.left && (
+            <button
+              type="button"
+              onClick={() => onSelectValue(decomposition.left)}
+              className=" text-left text-blue-600 hover:underline flex items-center gap-1 flex-none w-fit"
+            >
+              <span>{decomposition.left}</span>
+              {decomposition.leftKeyword && (
+                <span className="text-gray-600">{decomposition.leftKeyword}</span>
+              )}
+            </button>
+          )}
+          <span>+</span>
+          {decomposition.right && (
+            <button
+              type="button"
+              onClick={() => onSelectValue(decomposition.right)}
+              className="text-left text-blue-600 hover:underline flex items-center gap-1 flex-none w-fit"
+            >
+              <span>{decomposition.right}</span>
+              {decomposition.rightKeyword && (
+                <span className="text-gray-600">{decomposition.rightKeyword}</span>
+              )}
+            </button>
+          )}
+          <span>=</span>
+          {decomposition.right && (
+            <button
+              type="button"
+              onClick={() => onSelectValue(query)}
+              className="text-left text-blue-600 hover:underline flex items-center gap-1 flex-none w-fit"
+            >
+              <span>{query}</span>
+              {decomposition.valueKeyword && (
+                <span className="text-gray-600">{decomposition.valueKeyword}</span>
+              )}
+            </button>
+          )}
+        </div>
+      ) : (
+        <div className="mt-2 px-3  py-2 text-gray-400 flex flex-row justify-start gap-1 items-center">
+          (no decomposition)
+        </div>
+      )}
+
+      <div className="space-y-4 mt-3 divide-y border-t max-w-lg">
+        {results.map((row) => {
+          const englishMeanings = row.english
+            ? row.english
+                .split("/")
+                .map((item) => item.trim())
+                .filter(Boolean)
+            : [];
+
+          return (
+            <div key={row.id ?? row.simplified} className="  p-3 space-y-1">
+              <div className="font-semibold text-lg">
+                {row.simplified}{" "}
+                {row.traditional !== row.simplified
+                  ? `(${row.traditional})`
+                  : ""}
+              </div>
+              {row.pinyin && (
+                <div className="text-sm text-gray-600">{row.pinyin}</div>
+              )}
+              {englishMeanings.map((meaning, index) => (
+                <div
+                  key={`${row.id ?? row.simplified}-meaning-${index}`}
+                  className="text-sm"
+                >
+                  {meaning}
+                </div>
+              ))}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function HistoryList({ history, onSelect, isVisible }) {
+  if (!isVisible || history.length === 0) {
+    return null;
+  }
+
+  return (
+    <nav
+      aria-label="Query history"
+      className="mt-3 px-3 text-lg text-gray-600 border-t py-3 max-w-lg"
+    >
+      <div>History</div>
+      <div className="flex flex-wrap items-center gap-3">
+        {history.map((item) => (
+          <div key={item} className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => onSelect(item)}
+              className="text-blue-600 hover:underline"
+            >
+              {item}
+            </button>
+          </div>
+        ))}
+      </div>
+    </nav>
+  );
+}
+
 function Dashboard({ db }) {
   const [query, setQuery] = useState(() => getQueryFromUrl()); // input value
   const [results, setResults] = useState([]); // query results
@@ -608,13 +793,34 @@ function Dashboard({ db }) {
     updateView(normalized);
   };
 
+  const ensureDefinitionView = (options = {}) => {
+    if (view !== DEFAULT_VIEW) {
+      updateView(DEFAULT_VIEW, options);
+    }
+  };
+
   const handleSelectValue = (nextValue) => {
     if (!nextValue) return;
 
     updateQuery(nextValue);
 
-    if (view !== DEFAULT_VIEW) {
-      updateView(DEFAULT_VIEW, { replace: true });
+    ensureDefinitionView({ replace: true });
+  };
+
+  const handleQueryChange = (value) => {
+    updateQuery(value, { replace: true });
+
+    if (value.trim()) {
+      ensureDefinitionView({ replace: true });
+    }
+  };
+
+  const handleQuerySubmit = (value) => {
+    const trimmed = (value ?? "").trim();
+    updateQuery(trimmed);
+
+    if (trimmed) {
+      ensureDefinitionView();
     }
   };
 
@@ -622,72 +828,20 @@ function Dashboard({ db }) {
   const isKeywordView = view === VIEW_KEYWORDS;
   const isDefinitionView = !isKeywordView;
 
-  const tabButtonClass = (tab) =>
-    `px-3 py-1 text-sm border rounded transition-colors ${
-      view === tab
-        ? "border-blue-500 bg-blue-50 text-blue-700"
-        : "border-transparent text-gray-600 hover:border-gray-300"
-    }`;
-
   return (
     <div className="p-3">
       <div className="pb-2 px-3">
         <h1 className="font-black text-gray-500">Character Composition</h1>
-        <div
-          role="tablist"
-          aria-label="View selection"
-          className="mt-3 flex gap-2"
-        >
-          <button
-            type="button"
-            role="tab"
-            aria-selected={view === DEFAULT_VIEW}
-            className={tabButtonClass(DEFAULT_VIEW)}
-            onClick={() => handleSelectViewTab(DEFAULT_VIEW)}
-          >
-            Definition
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={view === VIEW_KEYWORDS}
-            className={tabButtonClass(VIEW_KEYWORDS)}
-            onClick={() => handleSelectViewTab(VIEW_KEYWORDS)}
-          >
-            Keyword List
-          </button>
-        </div>
+        <ViewTabs view={view} onSelect={handleSelectViewTab} />
       </div>
 
-      <div className="mt-1 flex items-center gap-3 max-w-lg">
-        <input
-          type="text"
-          placeholder="Enter character…"
-          value={query}
-          onChange={(e) => {
-            const val = e.target.value;
-            updateQuery(val, { replace: true });
-
-            if (val.trim() && view !== DEFAULT_VIEW) {
-              updateView(DEFAULT_VIEW, { replace: true });
-            }
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              const val = e.currentTarget.value.trim();
-              updateQuery(val);
-              if (val && view !== DEFAULT_VIEW) {
-                updateView(DEFAULT_VIEW);
-              }
-            }
-          }}
-          className="flex-1 px-3 py-1 border rounded text-lg"
-        />
-        <BookOrderNavigator
-          navigation={bookOrderNav}
-          onSelect={handleSelectValue}
-        />
-      </div>
+      <SearchBar
+        query={query ?? ""}
+        onQueryChange={handleQueryChange}
+        onQuerySubmit={handleQuerySubmit}
+        bookOrderNav={bookOrderNav}
+        onSelectValue={handleSelectValue}
+      />
 
       {error && <div style={{ color: "red" }}>{error}</div>}
 
@@ -699,116 +853,18 @@ function Dashboard({ db }) {
         isVisible={isKeywordView}
       />
 
-      <div hidden={!isDefinitionView} aria-hidden={!isDefinitionView}>
-        {(decomposition.left || decomposition.right) &&
-        decomposition.right !== "*" ? (
-          <div className="mt-2 px-3  py-2 text-lg flex flex-row justify-start gap-1 items-center">
-            {decomposition.left && (
-              <button
-                type="button"
-                onClick={() => handleSelectValue(decomposition.left)}
-                className=" text-left text-blue-600 hover:underline flex items-center gap-1 flex-none w-fit"
-              >
-                <span>{decomposition.left}</span>
-                {decomposition.leftKeyword && (
-                  <span className="text-gray-600">
-                    {decomposition.leftKeyword}
-                  </span>
-                )}
-              </button>
-            )}
-            {<span>+</span>}
-            {decomposition.right && (
-              <button
-                type="button"
-                onClick={() => handleSelectValue(decomposition.right)}
-                className="text-left text-blue-600 hover:underline flex items-center gap-1 flex-none w-fit"
-              >
-                <span>{decomposition.right}</span>
-                {decomposition.rightKeyword && (
-                  <span className="text-gray-600">
-                    {decomposition.rightKeyword}
-                  </span>
-                )}
-              </button>
-            )}
-            {<span>=</span>}
-            {decomposition.right && (
-              <button
-                type="button"
-                onClick={() => handleSelectValue(query)}
-                className="text-left text-blue-600 hover:underline flex items-center gap-1 flex-none w-fit"
-              >
-                <span>{query}</span>
-                {decomposition.valueKeyword && (
-                  <span className="text-gray-600">
-                    {decomposition.valueKeyword}
-                  </span>
-                )}
-              </button>
-            )}
-          </div>
-        ) : (
-          <div className="mt-2 px-3  py-2 text-gray-400 flex flex-row justify-start gap-1 items-center">
-            (no decomposition)
-          </div>
-        )}
-
-        <div className="space-y-4 mt-3 divide-y border-t max-w-lg">
-          {results.map((row) => {
-            const englishMeanings = row.english
-              ? row.english
-                  .split("/")
-                  .map((item) => item.trim())
-                  .filter(Boolean)
-              : [];
-            return (
-              <div key={row.id ?? row.simplified} className="  p-3 space-y-1">
-                <div className="font-semibold text-lg">
-                  {row.simplified}{" "}
-                  {row.traditional !== row.simplified
-                    ? `(${row.traditional})`
-                    : ""}
-                </div>
-                {row.pinyin && (
-                  <div className="text-sm text-gray-600">{row.pinyin}</div>
-                )}
-                {englishMeanings.map((meaning, index) => (
-                  <div
-                    key={`${row.id ?? row.simplified}-meaning-${index}`}
-                    className="text-sm"
-                  >
-                    {meaning}
-                  </div>
-                ))}
-              </div>
-            );
-          })}
-        </div>
-        {history.length > 0 && (
-          <nav
-            aria-label="Query history"
-            className="mt-3 px-3 text-lg text-gray-600 border-t py-3 max-w-lg"
-          >
-            <div>History</div>
-            <div className="flex flex-wrap items-center gap-3">
-              {history.map((item, index) => {
-                return (
-                  <div key={item} className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => handleSelectValue(item)}
-                      className="text-blue-600 hover:underline"
-                    >
-                      {item}
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-          </nav>
-        )}
-      </div>
+      <DefinitionView
+        isVisible={isDefinitionView}
+        decomposition={decomposition}
+        query={query}
+        results={results}
+        onSelectValue={handleSelectValue}
+      />
+      <HistoryList
+        history={history}
+        onSelect={handleSelectValue}
+        isVisible={isDefinitionView}
+      />
     </div>
   );
 }
