@@ -98,7 +98,13 @@ function useContainerMetrics({
     measure();
     window.addEventListener("resize", measure);
     return () => window.removeEventListener("resize", measure);
-  }, [containerRef, isActive, itemSelector, defaultItemHeight, ...dependencies]);
+  }, [
+    containerRef,
+    isActive,
+    itemSelector,
+    defaultItemHeight,
+    ...dependencies,
+  ]);
 
   return { containerHeight, itemHeight };
 }
@@ -165,10 +171,7 @@ function useVirtualList({
 }) {
   const safeHeight = itemHeight > 0 ? itemHeight : 1;
   const totalHeight = itemCount * safeHeight;
-  const startIndex = Math.max(
-    0,
-    Math.floor(scrollTop / safeHeight) - overscan
-  );
+  const startIndex = Math.max(0, Math.floor(scrollTop / safeHeight) - overscan);
   const endIndex = Math.min(
     itemCount,
     Math.ceil((scrollTop + containerHeight) / safeHeight) + overscan
@@ -267,7 +270,8 @@ function KeywordList({
   isVisible,
 }) {
   const containerRef = useRef(null);
-  const { scrollTop, setScrollTop, handleScroll } = useScrollPosition(isVisible);
+  const { scrollTop, setScrollTop, handleScroll } =
+    useScrollPosition(isVisible);
   const { containerHeight, itemHeight } = useContainerMetrics({
     containerRef,
     isActive: isVisible,
@@ -333,7 +337,9 @@ function KeywordList({
 
                 return (
                   <button
-                    key={`${item.simplified ?? ""}-${item.book_order ?? ""}-${actualIndex}`}
+                    key={`${item.simplified ?? ""}-${
+                      item.book_order ?? ""
+                    }-${actualIndex}`}
                     type="button"
                     onClick={() => onSelect(item.simplified)}
                     className={`w-full flex items-center justify-between gap-3 px-3 py-2 text-left hover:bg-gray-50 ${
@@ -342,13 +348,19 @@ function KeywordList({
                     aria-current={isActive ? "true" : undefined}
                   >
                     <div className="flex items-center gap-3">
-                      <span className="text-lg font-semibold">{item.simplified}</span>
+                      <span className="text-lg font-semibold">
+                        {item.simplified}
+                      </span>
                       {item.keyword && (
-                        <span className="text-sm text-gray-600">{item.keyword}</span>
+                        <span className="text-sm text-gray-600">
+                          {item.keyword}
+                        </span>
                       )}
                     </div>
                     {typeof item.book_order === "number" && (
-                      <span className="text-xs text-gray-500">#{item.book_order}</span>
+                      <span className="text-xs text-gray-500">
+                        #{item.book_order}
+                      </span>
                     )}
                   </button>
                 );
@@ -445,7 +457,9 @@ function DefinitionView({
             >
               <span>{decomposition.left}</span>
               {decomposition.leftKeyword && (
-                <span className="text-gray-600">{decomposition.leftKeyword}</span>
+                <span className="text-gray-600">
+                  {decomposition.leftKeyword}
+                </span>
               )}
             </button>
           )}
@@ -458,7 +472,9 @@ function DefinitionView({
             >
               <span>{decomposition.right}</span>
               {decomposition.rightKeyword && (
-                <span className="text-gray-600">{decomposition.rightKeyword}</span>
+                <span className="text-gray-600">
+                  {decomposition.rightKeyword}
+                </span>
               )}
             </button>
           )}
@@ -471,7 +487,9 @@ function DefinitionView({
             >
               <span>{query}</span>
               {decomposition.valueKeyword && (
-                <span className="text-gray-600">{decomposition.valueKeyword}</span>
+                <span className="text-gray-600">
+                  {decomposition.valueKeyword}
+                </span>
               )}
             </button>
           )}
@@ -728,6 +746,7 @@ function Dashboard({ db }) {
           leftKeyword,
           rightKeyword,
         });
+        console.log(keywordData);
         setBookOrderNav({
           current:
             valueBookOrder != null
@@ -829,7 +848,10 @@ function Dashboard({ db }) {
     }
   };
 
-  const updateView = (nextView, { replace = false } = {}) => {
+  const updateView = (
+    nextView,
+    { replace = false, queryValue } = {}
+  ) => {
     const normalizedView = normalizeView(nextView);
     setView(normalizedView);
 
@@ -837,8 +859,10 @@ function Dashboard({ db }) {
 
     const params = new URLSearchParams(window.location.search);
 
-    if (query) {
-      params.set(QUERY_PARAM, query);
+    const effectiveQuery = queryValue ?? query;
+
+    if (effectiveQuery) {
+      params.set(QUERY_PARAM, effectiveQuery);
     } else {
       params.delete(QUERY_PARAM);
     }
@@ -864,9 +888,9 @@ function Dashboard({ db }) {
     updateView(normalized);
   };
 
-  const ensureDefinitionView = (options = {}) => {
+  const ensureDefinitionView = (options = {}, queryValue) => {
     if (view !== DEFAULT_VIEW) {
-      updateView(DEFAULT_VIEW, options);
+      updateView(DEFAULT_VIEW, { ...options, queryValue });
     }
   };
 
@@ -875,14 +899,14 @@ function Dashboard({ db }) {
 
     updateQuery(nextValue);
 
-    ensureDefinitionView({ replace: true });
+    ensureDefinitionView({ replace: true }, nextValue);
   };
 
   const handleQueryChange = (value) => {
     updateQuery(value, { replace: true });
 
     if (value.trim()) {
-      ensureDefinitionView({ replace: true });
+      ensureDefinitionView({ replace: true }, value);
     }
   };
 
@@ -891,7 +915,7 @@ function Dashboard({ db }) {
     updateQuery(trimmed);
 
     if (trimmed) {
-      ensureDefinitionView();
+      ensureDefinitionView({}, trimmed);
     }
   };
 
