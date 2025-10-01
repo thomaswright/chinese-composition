@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import initSqlJs from "sql.js";
 import wasm from "sql.js/dist/sql-wasm.wasm?url";
 
@@ -81,7 +81,7 @@ function BookOrderNavigator({ navigation, onSelect }) {
   const hasNext = Boolean(navigation?.next?.simplified);
 
   return (
-    <div className="flex flex-row items-center justify-center gap-1 w-32 flex-none">
+    <div className="flex items-center justify-center gap-2 w-32 flex-none">
       <button
         type="button"
         onClick={() => {
@@ -95,7 +95,7 @@ function BookOrderNavigator({ navigation, onSelect }) {
       >
         <LucideChevronLeft className="w-4 h-4" />
       </button>
-      <span className="text-xs text-gray-600 text-center w-fit px-1">
+      <span className="flex-1 text-xs text-gray-600 text-center truncate">
         {current.bookOrder}
       </span>
       <button
@@ -115,20 +115,61 @@ function BookOrderNavigator({ navigation, onSelect }) {
   );
 }
 
-function KeywordList({ keywords, loading, onSelect, activeSimplified }) {
+function KeywordList({
+  keywords,
+  loading,
+  onSelect,
+  activeSimplified,
+  isVisible,
+}) {
   const activeButtonRef = useRef(null);
 
   useEffect(() => {
+    if (!isVisible) return;
+
     if (!loading && activeButtonRef.current) {
       activeButtonRef.current.scrollIntoView({
         block: "center",
       });
     }
-  }, [loading, activeSimplified]);
+  }, [loading, activeSimplified, isVisible]);
+
+  const keywordButtons = useMemo(() => {
+    return keywords.map((item, index) => {
+      const isActive = item.simplified === activeSimplified;
+
+      return (
+        <button
+          key={`${item.simplified ?? ""}-${item.book_order ?? ""}-${index}`}
+          type="button"
+          onClick={() => onSelect(item.simplified)}
+          ref={isActive ? activeButtonRef : null}
+          className={`w-full flex items-center justify-between gap-3 px-3 py-2 text-left hover:bg-gray-50 ${
+            isActive ? "bg-blue-50" : ""
+          }`}
+          aria-current={isActive ? "true" : undefined}
+        >
+          <div className="flex items-center gap-3">
+            <span className="text-lg font-semibold">{item.simplified}</span>
+            {item.keyword && (
+              <span className="text-sm text-gray-600">{item.keyword}</span>
+            )}
+          </div>
+          {typeof item.book_order === "number" && (
+            <span className="text-xs text-gray-500">#{item.book_order}</span>
+          )}
+        </button>
+      );
+    });
+  }, [keywords, activeSimplified, onSelect]);
 
   if (loading) {
     return (
-      <div className="mt-3 px-3 py-2 text-gray-600 text-sm border rounded max-w-lg">
+      <div
+        className="mt-3 px-3 py-2 text-gray-600 text-sm border rounded max-w-lg"
+        hidden={!isVisible}
+        aria-hidden={!isVisible}
+      >
         Loading keywords…
       </div>
     );
@@ -136,39 +177,24 @@ function KeywordList({ keywords, loading, onSelect, activeSimplified }) {
 
   if (!keywords.length) {
     return (
-      <div className="mt-3 px-3 py-2 text-gray-600 text-sm border rounded max-w-lg">
+      <div
+        className="mt-3 px-3 py-2 text-gray-600 text-sm border rounded max-w-lg"
+        hidden={!isVisible}
+        aria-hidden={!isVisible}
+      >
         No keywords found.
       </div>
     );
   }
 
   return (
-    <div className="mt-3 border rounded max-w-lg overflow-hidden">
+    <div
+      className="mt-3 border rounded max-w-lg overflow-hidden"
+      hidden={!isVisible}
+      aria-hidden={!isVisible}
+    >
       <div className="max-h-80 overflow-y-auto divide-y">
-        {keywords.map((item, index) => (
-          <button
-            key={`${item.simplified ?? ""}-${item.book_order ?? ""}-${index}`}
-            type="button"
-            onClick={() => onSelect(item.simplified)}
-            ref={item.simplified === activeSimplified ? activeButtonRef : null}
-            className={`w-full flex items-center justify-between gap-3 px-3 py-2 text-left hover:bg-gray-50 ${
-              item.simplified === activeSimplified ? "bg-blue-50" : ""
-            }`}
-            aria-current={
-              item.simplified === activeSimplified ? "true" : undefined
-            }
-          >
-            <div className="flex items-center gap-3">
-              <span className="text-lg font-semibold">{item.simplified}</span>
-              {item.keyword && (
-                <span className="text-sm text-gray-600">{item.keyword}</span>
-              )}
-            </div>
-            {typeof item.book_order === "number" && (
-              <span className="text-xs text-gray-500">#{item.book_order}</span>
-            )}
-          </button>
-        ))}
+        {keywordButtons}
       </div>
     </div>
   );
@@ -480,13 +506,16 @@ function Dashboard({ db }) {
     [recordHistory]
   );
 
-  const handleSelectValue = (nextValue) => {
-    if (!nextValue) return;
+  const handleSelectValue = useCallback(
+    (nextValue) => {
+      if (!nextValue) return;
 
-    setSavedQuery(null);
-    setShowAllKeywords(false);
-    updateQuery(nextValue);
-  };
+      setSavedQuery(null);
+      setShowAllKeywords(false);
+      updateQuery(nextValue);
+    },
+    [updateQuery]
+  );
 
   const handleToggleKeywordList = () => {
     const next = !showAllKeywords;
@@ -553,125 +582,120 @@ function Dashboard({ db }) {
 
       {error && <div style={{ color: "red" }}>{error}</div>}
 
-      {shouldShowKeywordList ? (
-        <KeywordList
-          keywords={allKeywords}
-          loading={loadingKeywords}
-          onSelect={handleSelectValue}
-          activeSimplified={savedQuery}
-        />
-      ) : (
-        <>
-          {(decomposition.left || decomposition.right) &&
-          decomposition.right !== "*" ? (
-            <div className="mt-2 px-3  py-2 text-lg flex flex-row justify-start gap-1 items-center">
-              {decomposition.left && (
-                <button
-                  type="button"
-                  onClick={() => handleSelectValue(decomposition.left)}
-                  className=" text-left text-blue-600 hover:underline flex items-center gap-1 flex-none w-fit"
-                >
-                  <span>{decomposition.left}</span>
-                  {decomposition.leftKeyword && (
-                    <span className="text-gray-600">
-                      {decomposition.leftKeyword}
-                    </span>
-                  )}
-                </button>
-              )}
-              {<span>+</span>}
-              {decomposition.right && (
-                <button
-                  type="button"
-                  onClick={() => handleSelectValue(decomposition.right)}
-                  className="text-left text-blue-600 hover:underline flex items-center gap-1 flex-none w-fit"
-                >
-                  <span>{decomposition.right}</span>
-                  {decomposition.rightKeyword && (
-                    <span className="text-gray-600">
-                      {decomposition.rightKeyword}
-                    </span>
-                  )}
-                </button>
-              )}
-              {<span>=</span>}
-              {decomposition.right && (
-                <button
-                  type="button"
-                  onClick={() => handleSelectValue(query)}
-                  className="text-left text-blue-600 hover:underline flex items-center gap-1 flex-none w-fit"
-                >
-                  <span>{query}</span>
-                  {decomposition.valueKeyword && (
-                    <span className="text-gray-600">
-                      {decomposition.valueKeyword}
-                    </span>
-                  )}
-                </button>
-              )}
-            </div>
-          ) : (
-            <div className="mt-2 px-3  py-2 text-lg flex flex-row justify-start gap-1 items-center">
-              No Decomposition
-            </div>
-          )}
+      <KeywordList
+        keywords={allKeywords}
+        loading={loadingKeywords}
+        onSelect={handleSelectValue}
+        activeSimplified={savedQuery}
+        isVisible={shouldShowKeywordList}
+      />
 
-          <div className="space-y-4 mt-3 divide-y border-t max-w-lg">
-            {results.map((row) => {
-              const englishMeanings = row.english
-                ? row.english
-                    .split("/")
-                    .map((item) => item.trim())
-                    .filter(Boolean)
-                : [];
-              return (
-                <div key={row.id ?? row.simplified} className="  p-3 space-y-1">
-                  <div className="font-semibold text-lg">
-                    {row.simplified}{" "}
-                    {row.traditional !== row.simplified
-                      ? `(${row.traditional})`
-                      : ""}
-                  </div>
-                  {row.pinyin && (
-                    <div className="text-sm text-gray-600">{row.pinyin}</div>
-                  )}
-                  {englishMeanings.map((meaning, index) => (
-                    <div
-                      key={`${row.id ?? row.simplified}-meaning-${index}`}
-                      className="text-sm"
-                    >
-                      {meaning}
-                    </div>
-                  ))}
-                </div>
-              );
-            })}
+      <div hidden={shouldShowKeywordList} aria-hidden={shouldShowKeywordList}>
+        {(decomposition.left || decomposition.right) &&
+        decomposition.right !== "*" ? (
+          <div className="mt-2 px-3  py-2 text-lg flex flex-row justify-start gap-1 items-center">
+            {decomposition.left && (
+              <button
+                type="button"
+                onClick={() => handleSelectValue(decomposition.left)}
+                className=" text-left text-blue-600 hover:underline flex items-center gap-1 flex-none w-fit"
+              >
+                <span>{decomposition.left}</span>
+                {decomposition.leftKeyword && (
+                  <span className="text-gray-600">{decomposition.leftKeyword}</span>
+                )}
+              </button>
+            )}
+            {<span>+</span>}
+            {decomposition.right && (
+              <button
+                type="button"
+                onClick={() => handleSelectValue(decomposition.right)}
+                className="text-left text-blue-600 hover:underline flex items-center gap-1 flex-none w-fit"
+              >
+                <span>{decomposition.right}</span>
+                {decomposition.rightKeyword && (
+                  <span className="text-gray-600">{decomposition.rightKeyword}</span>
+                )}
+              </button>
+            )}
+            {<span>=</span>}
+            {decomposition.right && (
+              <button
+                type="button"
+                onClick={() => handleSelectValue(query)}
+                className="text-left text-blue-600 hover:underline flex items-center gap-1 flex-none w-fit"
+              >
+                <span>{query}</span>
+                {decomposition.valueKeyword && (
+                  <span className="text-gray-600">
+                    {decomposition.valueKeyword}
+                  </span>
+                )}
+              </button>
+            )}
           </div>
-          {history.length > 0 && (
-            <nav
-              aria-label="Query history"
-              className="mt-3 px-3 text-lg text-gray-600 border-t py-3 max-w-lg"
-            >
-              <div>History</div>
-              <div className="flex flex-wrap items-center gap-3">
-                {history.map((item, index) => {
-                  return (
-                    <div key={item} className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => handleSelectValue(item)}
-                        className="text-blue-600 hover:underline"
-                      >
-                        {item}
-                      </button>
-                    </div>
-                  );
-                })}
+        ) : (
+          <div className="mt-2 px-3  py-2 text-lg flex flex-row justify-start gap-1 items-center">
+            No Decomposition
+          </div>
+        )}
+
+        <div className="space-y-4 mt-3 divide-y border-t max-w-lg">
+          {results.map((row) => {
+            const englishMeanings = row.english
+              ? row.english
+                  .split("/")
+                  .map((item) => item.trim())
+                  .filter(Boolean)
+              : [];
+            return (
+              <div key={row.id ?? row.simplified} className="  p-3 space-y-1">
+                <div className="font-semibold text-lg">
+                  {row.simplified}{" "}
+                  {row.traditional !== row.simplified
+                    ? `(${row.traditional})`
+                    : ""}
+                </div>
+                {row.pinyin && (
+                  <div className="text-sm text-gray-600">{row.pinyin}</div>
+                )}
+                {englishMeanings.map((meaning, index) => (
+                  <div
+                    key={`${row.id ?? row.simplified}-meaning-${index}`}
+                    className="text-sm"
+                  >
+                    {meaning}
+                  </div>
+                ))}
               </div>
-            </nav>
-          )}
-        </>
-      )}
+            );
+          })}
+        </div>
+        {history.length > 0 && (
+          <nav
+            aria-label="Query history"
+            className="mt-3 px-3 text-lg text-gray-600 border-t py-3 max-w-lg"
+          >
+            <div>History</div>
+            <div className="flex flex-wrap items-center gap-3">
+              {history.map((item, index) => {
+                return (
+                  <div key={item} className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleSelectValue(item)}
+                      className="text-blue-600 hover:underline"
+                    >
+                      {item}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </nav>
+        )}
+      </div>
     </div>
   );
 }
