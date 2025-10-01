@@ -215,9 +215,7 @@ function KeywordList({
       hidden={!isVisible}
       aria-hidden={!isVisible}
     >
-      <div className="max-h-80 overflow-y-auto divide-y">
-        {keywordButtons}
-      </div>
+      <div className="max-h-80 overflow-y-auto divide-y">{keywordButtons}</div>
     </div>
   );
 }
@@ -457,7 +455,7 @@ function Dashboard({ db }) {
 
     try {
       stmt = db.prepare(
-        "SELECT simplified, keyword, book_order FROM hanzi_keywords ORDER BY book_order ASC"
+        "SELECT simplified, keyword, book_order FROM hanzi_keywords ORDER BY (book_order IS NULL), book_order ASC"
       );
 
       while (stmt.step()) {
@@ -633,11 +631,18 @@ function Dashboard({ db }) {
           onChange={(e) => {
             const val = e.target.value;
             updateQuery(val, { replace: true });
+
+            if (val.trim() && view !== DEFAULT_VIEW) {
+              updateView(DEFAULT_VIEW, { replace: true });
+            }
           }}
           onKeyDown={(e) => {
             if (e.key === "Enter") {
               const val = e.currentTarget.value.trim();
               updateQuery(val);
+              if (val && view !== DEFAULT_VIEW) {
+                updateView(DEFAULT_VIEW);
+              }
             }
           }}
           className="flex-1 px-3 py-1 border rounded text-lg"
@@ -670,7 +675,9 @@ function Dashboard({ db }) {
               >
                 <span>{decomposition.left}</span>
                 {decomposition.leftKeyword && (
-                  <span className="text-gray-600">{decomposition.leftKeyword}</span>
+                  <span className="text-gray-600">
+                    {decomposition.leftKeyword}
+                  </span>
                 )}
               </button>
             )}
@@ -683,7 +690,9 @@ function Dashboard({ db }) {
               >
                 <span>{decomposition.right}</span>
                 {decomposition.rightKeyword && (
-                  <span className="text-gray-600">{decomposition.rightKeyword}</span>
+                  <span className="text-gray-600">
+                    {decomposition.rightKeyword}
+                  </span>
                 )}
               </button>
             )}
@@ -704,8 +713,8 @@ function Dashboard({ db }) {
             )}
           </div>
         ) : (
-          <div className="mt-2 px-3  py-2 text-lg flex flex-row justify-start gap-1 items-center">
-            No Decomposition
+          <div className="mt-2 px-3  py-2 text-gray-400 flex flex-row justify-start gap-1 items-center">
+            (no decomposition)
           </div>
         )}
 
