@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import initSqlJs from "sql.js";
 import wasm from "sql.js/dist/sql-wasm.wasm?url";
 
@@ -74,14 +74,14 @@ function BookOrderNavigator({ navigation, onSelect }) {
   const current = navigation?.current;
 
   if (!current || current.bookOrder == null) {
-    return null;
+    return <div className="w-32 flex-none" aria-hidden="true" />;
   }
 
   const hasPrevious = Boolean(navigation?.previous?.simplified);
   const hasNext = Boolean(navigation?.next?.simplified);
 
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex flex-row items-center justify-center gap-1 w-32 flex-none">
       <button
         type="button"
         onClick={() => {
@@ -90,11 +90,12 @@ function BookOrderNavigator({ navigation, onSelect }) {
           }
         }}
         disabled={!hasPrevious}
-        className="px-2 py-1 border rounded text-lg leading-none disabled:opacity-40 disabled:cursor-not-allowed"
+        className="w-8 h-8 flex items-center justify-center border rounded disabled:opacity-40 disabled:cursor-not-allowed"
+        aria-label="Previous keyword"
       >
         <LucideChevronLeft className="w-4 h-4" />
       </button>
-      <span className="text-sm text-gray-600 whitespace-nowrap">
+      <span className="text-xs text-gray-600 text-center w-fit px-1">
         {current.bookOrder}
       </span>
       <button
@@ -105,7 +106,8 @@ function BookOrderNavigator({ navigation, onSelect }) {
           }
         }}
         disabled={!hasNext}
-        className="px-2 py-1 border rounded text-lg leading-none disabled:opacity-40 disabled:cursor-not-allowed"
+        className="w-8 h-8 flex items-center justify-center border rounded disabled:opacity-40 disabled:cursor-not-allowed"
+        aria-label="Next keyword"
       >
         <LucideChevronRight className="w-4 h-4" />
       </button>
@@ -113,7 +115,17 @@ function BookOrderNavigator({ navigation, onSelect }) {
   );
 }
 
-function KeywordList({ keywords, loading, onSelect }) {
+function KeywordList({ keywords, loading, onSelect, activeSimplified }) {
+  const activeButtonRef = useRef(null);
+
+  useEffect(() => {
+    if (!loading && activeButtonRef.current) {
+      activeButtonRef.current.scrollIntoView({
+        block: "center",
+      });
+    }
+  }, [loading, activeSimplified]);
+
   if (loading) {
     return (
       <div className="mt-3 px-3 py-2 text-gray-600 text-sm border rounded max-w-lg">
@@ -138,7 +150,13 @@ function KeywordList({ keywords, loading, onSelect }) {
             key={`${item.simplified ?? ""}-${item.book_order ?? ""}-${index}`}
             type="button"
             onClick={() => onSelect(item.simplified)}
-            className="w-full flex items-center justify-between gap-3 px-3 py-2 text-left hover:bg-gray-50"
+            ref={item.simplified === activeSimplified ? activeButtonRef : null}
+            className={`w-full flex items-center justify-between gap-3 px-3 py-2 text-left hover:bg-gray-50 ${
+              item.simplified === activeSimplified ? "bg-blue-50" : ""
+            }`}
+            aria-current={
+              item.simplified === activeSimplified ? "true" : undefined
+            }
           >
             <div className="flex items-center gap-3">
               <span className="text-lg font-semibold">{item.simplified}</span>
@@ -475,18 +493,13 @@ function Dashboard({ db }) {
     const trimmedCurrent = query?.trim();
 
     if (next) {
-      if (trimmedCurrent) {
-        setSavedQuery(query);
-      } else {
-        setSavedQuery(null);
-      }
+      setSavedQuery(trimmedCurrent || null);
 
       if (query) {
         updateQuery("", { replace: true });
       }
     } else {
-      const trimmedSaved = savedQuery?.trim();
-      if (!query && trimmedSaved) {
+      if (!query && savedQuery) {
         updateQuery(savedQuery, { replace: true });
       }
 
@@ -545,6 +558,7 @@ function Dashboard({ db }) {
           keywords={allKeywords}
           loading={loadingKeywords}
           onSelect={handleSelectValue}
+          activeSimplified={savedQuery}
         />
       ) : (
         <>
