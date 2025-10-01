@@ -153,25 +153,68 @@ function KeywordList({
   activeSimplified,
   isVisible,
 }) {
-  const activeButtonRef = useRef(null);
+  const containerRef = useRef(null);
+  const [scrollTop, setScrollTop] = useState(0);
+  const [containerHeight, setContainerHeight] = useState(0);
+  const [itemHeight, setItemHeight] = useState(48);
+
+  useEffect(() => {
+    if (!isVisible) {
+      return;
+    }
+
+    const el = containerRef.current;
+    if (!el) return;
+
+    const updateMetrics = () => {
+      setContainerHeight(el.clientHeight);
+
+      const firstButton = el.querySelector("button");
+      if (firstButton) {
+        const measuredHeight = firstButton.getBoundingClientRect().height;
+        if (measuredHeight) {
+          setItemHeight(measuredHeight);
+        }
+      }
+    };
+
+    updateMetrics();
+    window.addEventListener("resize", updateMetrics);
+    return () => window.removeEventListener("resize", updateMetrics);
+  }, [isVisible, loading, keywords.length]);
 
   useEffect(() => {
     if (!isVisible) return;
 
-    if (!loading && activeButtonRef.current) {
-      activeButtonRef.current.scrollIntoView({
-        block: "center",
-      });
+    const el = containerRef.current;
+    if (!el) return;
+
+    const activeIndex = keywords.findIndex(
+      (item) => item.simplified === activeSimplified
+    );
+
+    if (activeIndex < 0 || itemHeight <= 0 || containerHeight <= 0) {
+      return;
     }
-  }, [loading, activeSimplified, isVisible]);
+
+    const targetScroll = Math.max(
+      0,
+      activeIndex * itemHeight - containerHeight / 2 + itemHeight / 2
+    );
+
+    if (Math.abs(el.scrollTop - targetScroll) > 1) {
+      el.scrollTop = targetScroll;
+      setScrollTop(targetScroll);
+    }
+  }, [isVisible, activeSimplified, keywords, itemHeight, containerHeight]);
+
+  if (!isVisible) {
+    return null;
+  }
 
   if (loading) {
     return (
-      <div
-        className="mt-3 px-3 py-2 text-gray-600 text-sm border rounded max-w-lg"
-        hidden={!isVisible}
-        aria-hidden={!isVisible}
-      >
+      <div className="mt-3 px-3 py-2 text-gray-600 text-sm border rounded max-w-lg">
         Loading keywords…
       </div>
     );
@@ -179,49 +222,69 @@ function KeywordList({
 
   if (!keywords.length) {
     return (
-      <div
-        className="mt-3 px-3 py-2 text-gray-600 text-sm border rounded max-w-lg"
-        hidden={!isVisible}
-        aria-hidden={!isVisible}
-      >
+      <div className="mt-3 px-3 py-2 text-gray-600 text-sm border rounded max-w-lg">
         No keywords found.
       </div>
     );
   }
 
-  return (
-    <div
-      className="mt-3 border rounded max-w-lg overflow-hidden"
-      hidden={!isVisible}
-      aria-hidden={!isVisible}
-    >
-      <div className="max-h-80 overflow-y-auto divide-y">
-        {keywords.map((item, index) => {
-          const isActive = item.simplified === activeSimplified;
+  const overscan = 8;
+  const totalHeight = keywords.length * itemHeight;
+  const startIndex = Math.max(
+    0,
+    Math.floor(scrollTop / itemHeight) - overscan
+  );
+  const endIndex = Math.min(
+    keywords.length,
+    Math.ceil((scrollTop + containerHeight) / itemHeight) + overscan
+  );
+  const itemsToRender = keywords.slice(startIndex, endIndex);
+  const offsetY = startIndex * itemHeight;
 
-          return (
-            <button
-              key={`${item.simplified ?? ""}-${item.book_order ?? ""}-${index}`}
-              type="button"
-              onClick={() => onSelect(item.simplified)}
-              ref={isActive ? activeButtonRef : null}
-              className={`w-full flex items-center justify-between gap-3 px-3 py-2 text-left hover:bg-gray-50 ${
-                isActive ? "bg-blue-50" : ""
-              }`}
-              aria-current={isActive ? "true" : undefined}
-            >
-              <div className="flex items-center gap-3">
-                <span className="text-lg font-semibold">{item.simplified}</span>
-                {item.keyword && (
-                  <span className="text-sm text-gray-600">{item.keyword}</span>
-                )}
-              </div>
-              {typeof item.book_order === "number" && (
-                <span className="text-xs text-gray-500">#{item.book_order}</span>
-              )}
-            </button>
-          );
-        })}
+  return (
+    <div className="mt-3 border rounded max-w-lg overflow-hidden">
+      <div
+        ref={containerRef}
+        className="max-h-80 overflow-y-auto"
+        onScroll={(event) => {
+          setScrollTop(event.currentTarget.scrollTop);
+        }}
+      >
+        <div style={{ height: totalHeight, position: "relative" }}>
+          <div
+            className="absolute inset-x-0"
+            style={{ transform: `translateY(${offsetY}px)` }}
+          >
+            <div className="divide-y">
+              {itemsToRender.map((item, index) => {
+                const actualIndex = startIndex + index;
+                const isActive = item.simplified === activeSimplified;
+
+                return (
+                  <button
+                    key={`${item.simplified ?? ""}-${item.book_order ?? ""}-${actualIndex}`}
+                    type="button"
+                    onClick={() => onSelect(item.simplified)}
+                    className={`w-full flex items-center justify-between gap-3 px-3 py-2 text-left hover:bg-gray-50 ${
+                      isActive ? "bg-blue-50" : ""
+                    }`}
+                    aria-current={isActive ? "true" : undefined}
+                  >
+                    <div className="flex items-center gap-3">
+                      <span className="text-lg font-semibold">{item.simplified}</span>
+                      {item.keyword && (
+                        <span className="text-sm text-gray-600">{item.keyword}</span>
+                      )}
+                    </div>
+                    {typeof item.book_order === "number" && (
+                      <span className="text-xs text-gray-500">#{item.book_order}</span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
