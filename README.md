@@ -1,15 +1,10 @@
-# React + Vite
+# Chinese Composition
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+## Attributions
 
-Currently, two official plugins are available:
+- Dictionary: https://www.mdbg.net/chinese/dictionary?page=cc-cedict
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
-
-## React Compiler
-
-The React Compiler is not enabled on this template. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+- Decomposition: https://commons.wikimedia.org/wiki/User:Artsakenos/CCD-TSV
 
 ## Expanding the ESLint configuration
 
