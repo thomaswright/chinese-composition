@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import initSqlJs from "sql.js";
 import wasm from "sql.js/dist/sql-wasm.wasm?url";
 
@@ -54,6 +54,15 @@ function createEmptyBookOrderNav() {
     previous: null,
     next: null,
   };
+}
+
+function pushHistory(prevHistory, value) {
+  const trimmedValue = (value ?? "").trim();
+  if (!trimmedValue) return prevHistory;
+
+  const nextHistory = prevHistory.filter((item) => item !== trimmedValue);
+  nextHistory.push(trimmedValue);
+  return nextHistory.slice(-10);
 }
 
 function LucideChevronLeft({ className }) {
@@ -156,35 +165,6 @@ function KeywordList({
     }
   }, [loading, activeSimplified, isVisible]);
 
-  const keywordButtons = useMemo(() => {
-    return keywords.map((item, index) => {
-      const isActive = item.simplified === activeSimplified;
-
-      return (
-        <button
-          key={`${item.simplified ?? ""}-${item.book_order ?? ""}-${index}`}
-          type="button"
-          onClick={() => onSelect(item.simplified)}
-          ref={isActive ? activeButtonRef : null}
-          className={`w-full flex items-center justify-between gap-3 px-3 py-2 text-left hover:bg-gray-50 ${
-            isActive ? "bg-blue-50" : ""
-          }`}
-          aria-current={isActive ? "true" : undefined}
-        >
-          <div className="flex items-center gap-3">
-            <span className="text-lg font-semibold">{item.simplified}</span>
-            {item.keyword && (
-              <span className="text-sm text-gray-600">{item.keyword}</span>
-            )}
-          </div>
-          {typeof item.book_order === "number" && (
-            <span className="text-xs text-gray-500">#{item.book_order}</span>
-          )}
-        </button>
-      );
-    });
-  }, [keywords, activeSimplified, onSelect]);
-
   if (loading) {
     return (
       <div
@@ -215,7 +195,34 @@ function KeywordList({
       hidden={!isVisible}
       aria-hidden={!isVisible}
     >
-      <div className="max-h-80 overflow-y-auto divide-y">{keywordButtons}</div>
+      <div className="max-h-80 overflow-y-auto divide-y">
+        {keywords.map((item, index) => {
+          const isActive = item.simplified === activeSimplified;
+
+          return (
+            <button
+              key={`${item.simplified ?? ""}-${item.book_order ?? ""}-${index}`}
+              type="button"
+              onClick={() => onSelect(item.simplified)}
+              ref={isActive ? activeButtonRef : null}
+              className={`w-full flex items-center justify-between gap-3 px-3 py-2 text-left hover:bg-gray-50 ${
+                isActive ? "bg-blue-50" : ""
+              }`}
+              aria-current={isActive ? "true" : undefined}
+            >
+              <div className="flex items-center gap-3">
+                <span className="text-lg font-semibold">{item.simplified}</span>
+                {item.keyword && (
+                  <span className="text-sm text-gray-600">{item.keyword}</span>
+                )}
+              </div>
+              {typeof item.book_order === "number" && (
+                <span className="text-xs text-gray-500">#{item.book_order}</span>
+              )}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -234,218 +241,196 @@ function Dashboard({ db }) {
     return initialValue ? [initialValue] : [];
   });
 
-  const fetchHanziRows = useCallback(
-    (column, value) => {
-      if (!db || !value) return [];
+  const fetchHanziRows = (column, value) => {
+    if (!db || !value) return [];
 
-      if (column !== "traditional" && column !== "simplified") {
-        throw new Error(`Unsupported column: ${column}`);
+    if (column !== "traditional" && column !== "simplified") {
+      throw new Error(`Unsupported column: ${column}`);
+    }
+
+    const rows = [];
+    const stmt = db.prepare(`SELECT * FROM hanzi WHERE ${column} = ?`);
+
+    try {
+      stmt.bind([value]);
+
+      while (stmt.step()) {
+        rows.push(stmt.getAsObject());
+      }
+    } finally {
+      stmt.free();
+    }
+
+    return rows;
+  };
+
+  const runQuery = (value) => {
+    if (!db) return;
+
+    try {
+      if (!value) {
+        setResults([]);
+        setDecomposition(createEmptyDecomposition());
+        setBookOrderNav(createEmptyBookOrderNav());
+        return;
       }
 
-      const rows = [];
-      const stmt = db.prepare(`SELECT * FROM hanzi WHERE ${column} = ?`);
+      setHistory((prevHistory) => pushHistory(prevHistory, value));
 
-      try {
-        stmt.bind([value]);
+      const traditionRows = fetchHanziRows("traditional", value);
+      const simplifiedRows = fetchHanziRows("simplified", value);
 
-        while (stmt.step()) {
-          rows.push(stmt.getAsObject());
-        }
-      } finally {
-        stmt.free();
+      const matchedRows = uniqueById(
+        [...traditionRows, ...simplifiedRows],
+        "id"
+      );
+
+      if (!matchedRows.length) {
+        setResults([]);
+        setDecomposition(createEmptyDecomposition());
+        setBookOrderNav(createEmptyBookOrderNav());
+        return;
       }
 
-      return rows;
-    },
-    [db]
-  );
+      const decompositionStmt = db.prepare(
+        "SELECT left_component, right_component FROM hanzi_decomposition WHERE component = ?"
+      );
+      const keywordStmt = db.prepare(
+        "SELECT keyword, book_order FROM hanzi_keywords WHERE simplified = ?"
+      );
+      const previousBookOrderStmt = db.prepare(
+        "SELECT simplified, book_order FROM hanzi_keywords WHERE book_order < ? ORDER BY book_order DESC LIMIT 1"
+      );
+      const nextBookOrderStmt = db.prepare(
+        "SELECT simplified, book_order FROM hanzi_keywords WHERE book_order > ? ORDER BY book_order ASC LIMIT 1"
+      );
 
-  const recordHistory = useCallback((value) => {
-    if (!value) return;
+      const lookupDecomposition = (lookupValue) => {
+        if (!lookupValue) return { left: null, right: null };
 
-    const trimmedValue = value.trim();
-    if (!trimmedValue) return;
+        decompositionStmt.bind([lookupValue]);
 
-    setHistory((prevHistory) => {
-      const nextHistory = prevHistory.filter((item) => item !== trimmedValue);
-      nextHistory.push(trimmedValue);
-      return nextHistory.slice(-10);
-    });
-  }, []);
-
-  const runQuery = useCallback(
-    (value) => {
-      if (!db) return;
-
-      try {
-        if (!value) {
-          setResults([]);
-          setDecomposition(createEmptyDecomposition());
-          setBookOrderNav(createEmptyBookOrderNav());
-          return;
+        if (!decompositionStmt.step()) {
+          decompositionStmt.reset();
+          return { left: null, right: null };
         }
 
-        recordHistory(value);
+        const { left_component, right_component } =
+          decompositionStmt.getAsObject();
+        decompositionStmt.reset();
 
-        const traditionRows = fetchHanziRows("traditional", value);
-        const simplifiedRows = fetchHanziRows("simplified", value);
+        return {
+          left: left_component || null,
+          right: right_component || null,
+        };
+      };
 
-        const matchedRows = uniqueById(
-          [...traditionRows, ...simplifiedRows],
+      const lookupKeyword = (lookupValue) => {
+        if (!lookupValue) return null;
+
+        keywordStmt.bind([lookupValue]);
+
+        if (!keywordStmt.step()) {
+          keywordStmt.reset();
+          return null;
+        }
+
+        const { keyword, book_order } = keywordStmt.getAsObject();
+        keywordStmt.reset();
+
+        return {
+          keyword: keyword || null,
+          bookOrder: typeof book_order === "number" ? book_order : null,
+        };
+      };
+
+      const fetchComponentRows = (lookupValue) => {
+        if (!lookupValue) return [];
+
+        return uniqueById(
+          [
+            ...fetchHanziRows("traditional", lookupValue),
+            ...fetchHanziRows("simplified", lookupValue),
+          ],
           "id"
         );
+      };
 
-        if (!matchedRows.length) {
-          setResults([]);
-          setDecomposition(createEmptyDecomposition());
-          setBookOrderNav(createEmptyBookOrderNav());
-          return;
-        }
+      try {
+        const { left: leftDecomp, right: rightDecomp } =
+          lookupDecomposition(value);
 
-        const decompositionStmt = db.prepare(
-          "SELECT left_component, right_component FROM hanzi_decomposition WHERE component = ?"
-        );
-        const keywordStmt = db.prepare(
-          "SELECT keyword, book_order FROM hanzi_keywords WHERE simplified = ?"
-        );
-        const previousBookOrderStmt = db.prepare(
-          "SELECT simplified, book_order FROM hanzi_keywords WHERE book_order < ? ORDER BY book_order DESC LIMIT 1"
-        );
-        const nextBookOrderStmt = db.prepare(
-          "SELECT simplified, book_order FROM hanzi_keywords WHERE book_order > ? ORDER BY book_order ASC LIMIT 1"
-        );
+        const leftDecompRows = fetchComponentRows(leftDecomp);
+        const rightDecompRows = fetchComponentRows(rightDecomp);
+        const keywordData = lookupKeyword(value);
+        const keyword = keywordData?.keyword ?? null;
+        const leftKeyword = lookupKeyword(leftDecomp)?.keyword ?? null;
+        const rightKeyword = lookupKeyword(rightDecomp)?.keyword ?? null;
+        const valueBookOrder = keywordData?.bookOrder ?? null;
 
-        const lookupDecomposition = (lookupValue) => {
-          if (!lookupValue) return { left: null, right: null };
+        const getNeighbor = (stmt, order) => {
+          if (typeof order !== "number") return null;
 
-          decompositionStmt.bind([lookupValue]);
+          stmt.bind([order]);
 
-          if (!decompositionStmt.step()) {
-            decompositionStmt.reset();
-            return { left: null, right: null };
-          }
-
-          const { left_component, right_component } =
-            decompositionStmt.getAsObject();
-          decompositionStmt.reset();
-
-          return {
-            left: left_component || null,
-            right: right_component || null,
-          };
-        };
-
-        const lookupKeyword = (lookupValue) => {
-          if (!lookupValue) return null;
-
-          keywordStmt.bind([lookupValue]);
-
-          if (!keywordStmt.step()) {
-            keywordStmt.reset();
+          if (!stmt.step()) {
+            stmt.reset();
             return null;
           }
 
-          const { keyword, book_order } = keywordStmt.getAsObject();
-          keywordStmt.reset();
+          const { simplified, book_order } = stmt.getAsObject();
+          stmt.reset();
 
           return {
-            keyword: keyword || null,
+            simplified: simplified || null,
             bookOrder: typeof book_order === "number" ? book_order : null,
           };
         };
 
-        const fetchComponentRows = (lookupValue) => {
-          if (!lookupValue) return [];
+        const previousBook = getNeighbor(previousBookOrderStmt, valueBookOrder);
+        const nextBook = getNeighbor(nextBookOrderStmt, valueBookOrder);
 
-          return uniqueById(
-            [
-              ...fetchHanziRows("traditional", lookupValue),
-              ...fetchHanziRows("simplified", lookupValue),
-            ],
-            "id"
-          );
-        };
+        const enrichedRows = matchedRows.map((row) => ({
+          ...row,
+          leftDecomp,
+          rightDecomp,
+          leftDecompRows,
+          rightDecompRows,
+          keyword,
+          leftKeyword,
+          rightKeyword,
+        }));
 
-        try {
-          const { left: leftDecomp, right: rightDecomp } =
-            lookupDecomposition(value);
-
-          const leftDecompRows = fetchComponentRows(leftDecomp);
-          const rightDecompRows = fetchComponentRows(rightDecomp);
-          const keywordData = lookupKeyword(value);
-          const keyword = keywordData?.keyword ?? null;
-          const leftKeyword = lookupKeyword(leftDecomp)?.keyword ?? null;
-          const rightKeyword = lookupKeyword(rightDecomp)?.keyword ?? null;
-          const valueBookOrder = keywordData?.bookOrder ?? null;
-
-          const getNeighbor = (stmt, order) => {
-            if (typeof order !== "number") return null;
-
-            stmt.bind([order]);
-
-            if (!stmt.step()) {
-              stmt.reset();
-              return null;
-            }
-
-            const { simplified, book_order } = stmt.getAsObject();
-            stmt.reset();
-
-            return {
-              simplified: simplified || null,
-              bookOrder: typeof book_order === "number" ? book_order : null,
-            };
-          };
-
-          const previousBook = getNeighbor(
-            previousBookOrderStmt,
-            valueBookOrder
-          );
-          const nextBook = getNeighbor(nextBookOrderStmt, valueBookOrder);
-
-          const enrichedRows = matchedRows.map((row) => ({
-            ...row,
-            leftDecomp,
-            rightDecomp,
-            leftDecompRows,
-            rightDecompRows,
-            keyword,
-            leftKeyword,
-            rightKeyword,
-          }));
-
-          setDecomposition({
-            valueKeyword: keyword,
-            valueBookOrder,
-            left: leftDecomp,
-            right: rightDecomp,
-            leftKeyword,
-            rightKeyword,
-          });
-          setBookOrderNav({
-            current:
-              valueBookOrder != null
-                ? { simplified: value, bookOrder: valueBookOrder }
-                : null,
-            previous: previousBook,
-            next: nextBook,
-          });
-          setResults(enrichedRows);
-        } finally {
-          decompositionStmt.free();
-          keywordStmt.free();
-          previousBookOrderStmt.free();
-          nextBookOrderStmt.free();
-        }
-      } catch (err) {
-        setError(err.toString());
-        setBookOrderNav(createEmptyBookOrderNav());
+        setDecomposition({
+          valueKeyword: keyword,
+          valueBookOrder,
+          left: leftDecomp,
+          right: rightDecomp,
+          leftKeyword,
+          rightKeyword,
+        });
+        setBookOrderNav({
+          current:
+            valueBookOrder != null
+              ? { simplified: value, bookOrder: valueBookOrder }
+              : null,
+          previous: previousBook,
+          next: nextBook,
+        });
+        setResults(enrichedRows);
+      } finally {
+        decompositionStmt.free();
+        keywordStmt.free();
+        previousBookOrderStmt.free();
+        nextBookOrderStmt.free();
       }
-    },
-    [db, fetchHanziRows, recordHistory]
-  );
+    } catch (err) {
+      setError(err.toString());
+      setBookOrderNav(createEmptyBookOrderNav());
+    }
+  };
 
-  const loadAllKeywords = useCallback(() => {
+  const loadAllKeywords = () => {
     if (!db) return;
 
     setLoadingKeywords(true);
@@ -469,118 +454,106 @@ function Dashboard({ db }) {
       if (stmt) stmt.free();
       setLoadingKeywords(false);
     }
-  }, [db]);
+  };
 
   useEffect(() => {
     runQuery(query);
-  }, [query, runQuery]);
+  }, [db, query]);
 
   useEffect(() => {
     const handlePopState = () => {
       const nextValue = getQueryFromUrl();
       setQuery(nextValue);
-      recordHistory(nextValue ?? "");
+      setHistory((prevHistory) => pushHistory(prevHistory, nextValue ?? ""));
       setView(getViewFromUrl());
     };
 
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
-  }, [recordHistory]);
+  }, []);
 
   useEffect(() => {
     if (!db || allKeywords.length) return;
 
     loadAllKeywords();
-  }, [db, allKeywords.length, loadAllKeywords]);
+  }, [db, allKeywords.length]);
 
-  const updateQuery = useCallback(
-    (nextValue, { replace = false } = {}) => {
-      setQuery(nextValue);
+  const updateQuery = (nextValue, { replace = false } = {}) => {
+    setQuery(nextValue);
 
-      if (!replace) {
-        recordHistory(nextValue ?? "");
-      }
+    if (!replace) {
+      setHistory((prevHistory) => pushHistory(prevHistory, nextValue ?? ""));
+    }
 
-      if (typeof window === "undefined") return;
+    if (typeof window === "undefined") return;
 
-      const params = new URLSearchParams(window.location.search);
+    const params = new URLSearchParams(window.location.search);
 
-      if (nextValue) {
-        params.set(QUERY_PARAM, nextValue);
-      } else {
-        params.delete(QUERY_PARAM);
-      }
+    if (nextValue) {
+      params.set(QUERY_PARAM, nextValue);
+    } else {
+      params.delete(QUERY_PARAM);
+    }
 
-      applyViewParam(params, view);
+    applyViewParam(params, view);
 
-      const search = params.toString();
-      const newUrl = search
-        ? `${window.location.pathname}?${search}`
-        : window.location.pathname;
+    const search = params.toString();
+    const newUrl = search
+      ? `${window.location.pathname}?${search}`
+      : window.location.pathname;
 
-      const currentUrl = `${window.location.pathname}${window.location.search}`;
-      if (replace || newUrl === currentUrl) {
-        window.history.replaceState(null, "", newUrl);
-      } else {
-        window.history.pushState(null, "", newUrl);
-      }
-    },
-    [recordHistory, view]
-  );
+    const currentUrl = `${window.location.pathname}${window.location.search}`;
+    if (replace || newUrl === currentUrl) {
+      window.history.replaceState(null, "", newUrl);
+    } else {
+      window.history.pushState(null, "", newUrl);
+    }
+  };
 
-  const updateView = useCallback(
-    (nextView, { replace = false } = {}) => {
-      const normalizedView = normalizeView(nextView);
-      setView(normalizedView);
+  const updateView = (nextView, { replace = false } = {}) => {
+    const normalizedView = normalizeView(nextView);
+    setView(normalizedView);
 
-      if (typeof window === "undefined") return;
+    if (typeof window === "undefined") return;
 
-      const params = new URLSearchParams(window.location.search);
+    const params = new URLSearchParams(window.location.search);
 
-      if (query) {
-        params.set(QUERY_PARAM, query);
-      } else {
-        params.delete(QUERY_PARAM);
-      }
+    if (query) {
+      params.set(QUERY_PARAM, query);
+    } else {
+      params.delete(QUERY_PARAM);
+    }
 
-      applyViewParam(params, normalizedView);
+    applyViewParam(params, normalizedView);
 
-      const search = params.toString();
-      const newUrl = search
-        ? `${window.location.pathname}?${search}`
-        : window.location.pathname;
+    const search = params.toString();
+    const newUrl = search
+      ? `${window.location.pathname}?${search}`
+      : window.location.pathname;
 
-      const currentUrl = `${window.location.pathname}${window.location.search}`;
-      if (replace || newUrl === currentUrl) {
-        window.history.replaceState(null, "", newUrl);
-      } else {
-        window.history.pushState(null, "", newUrl);
-      }
-    },
-    [query]
-  );
+    const currentUrl = `${window.location.pathname}${window.location.search}`;
+    if (replace || newUrl === currentUrl) {
+      window.history.replaceState(null, "", newUrl);
+    } else {
+      window.history.pushState(null, "", newUrl);
+    }
+  };
 
-  const handleSelectViewTab = useCallback(
-    (nextView) => {
-      const normalized = normalizeView(nextView);
-      if (normalized === view) return;
-      updateView(normalized);
-    },
-    [updateView, view]
-  );
+  const handleSelectViewTab = (nextView) => {
+    const normalized = normalizeView(nextView);
+    if (normalized === view) return;
+    updateView(normalized);
+  };
 
-  const handleSelectValue = useCallback(
-    (nextValue) => {
-      if (!nextValue) return;
+  const handleSelectValue = (nextValue) => {
+    if (!nextValue) return;
 
-      updateQuery(nextValue);
+    updateQuery(nextValue);
 
-      if (view !== DEFAULT_VIEW) {
-        updateView(DEFAULT_VIEW, { replace: true });
-      }
-    },
-    [updateQuery, updateView, view]
-  );
+    if (view !== DEFAULT_VIEW) {
+      updateView(DEFAULT_VIEW, { replace: true });
+    }
+  };
 
   const trimmedQuery = (query ?? "").trim();
   const isKeywordView = view === VIEW_KEYWORDS;
