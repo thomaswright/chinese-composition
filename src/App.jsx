@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import initSqlJs from "sql.js";
 import wasm from "sql.js/dist/sql-wasm.wasm?url";
 
@@ -50,6 +50,9 @@ function createEmptyDecompositionEntry({
   right = null,
   leftKeyword = null,
   rightKeyword = null,
+  leftTransformed = false,
+  rightTransformed = false,
+  components = [],
 }) {
   return {
     value,
@@ -59,6 +62,9 @@ function createEmptyDecompositionEntry({
     right,
     leftKeyword,
     rightKeyword,
+    leftTransformed,
+    rightTransformed,
+    components,
   };
 }
 
@@ -651,8 +657,10 @@ function DecompositionSection({ decompositions, query, onSelectValue }) {
       {decompositions.map((item, index) => {
         const displayValue = item.value ?? query ?? "";
         const key = `${displayValue || "entry"}-${index}`;
-        const showDecomposition =
-          (item.left || item.right) && item.right !== "*";
+        const componentList = Array.isArray(item.components)
+          ? item.components.filter((component) => component?.value)
+          : [];
+        const showDecomposition = componentList.length > 0;
 
         if (!showDecomposition) {
           return (
@@ -673,27 +681,25 @@ function DecompositionSection({ decompositions, query, onSelectValue }) {
             key={key}
             className="flex flex-row justify-start gap-3 items-center "
           >
-            {item.left && (
-              <button
-                type="button"
-                onClick={() => onSelectValue(item.left)}
-                className="text-left flex flex-col items-center flex-none w-fit px-2 py-1 rounded-md transition-colors hover:bg-gray-100 focus-visible:outline focus-visible:outline-blue-500"
-              >
-                <span className="text-lg leading-tight">{item.left}</span>
-                {item.leftKeyword && <span>{item.leftKeyword}</span>}
-              </button>
-            )}
-            <span>+</span>
-            {item.right && (
-              <button
-                type="button"
-                onClick={() => onSelectValue(item.right)}
-                className="text-left flex flex-col items-center flex-none w-fit px-2 py-1 rounded-md transition-colors hover:bg-gray-100 focus-visible:outline focus-visible:outline-blue-500"
-              >
-                <span className="text-lg leading-tight">{item.right}</span>
-                {item.rightKeyword && <span>{item.rightKeyword}</span>}
-              </button>
-            )}
+            {componentList.map((component, componentIndex) => {
+              const componentKey = `${key}-component-${component.value}-${componentIndex}`;
+
+              return (
+                <Fragment key={componentKey}>
+                  <button
+                    type="button"
+                    onClick={() => onSelectValue(component.value)}
+                    className="text-left flex flex-col items-center flex-none w-fit px-2 py-1 rounded-md transition-colors hover:bg-gray-100 focus-visible:outline focus-visible:outline-blue-500"
+                  >
+                    <span className="text-lg leading-tight">
+                      {component.value}
+                    </span>
+                    {component.keyword && <span>{component.keyword}</span>}
+                  </button>
+                  {componentIndex < componentList.length - 1 ? <span>+</span> : null}
+                </Fragment>
+              );
+            })}
             <span>=</span>
             <button
               type="button"
@@ -939,18 +945,27 @@ function Dashboard({ db }) {
       };
 
       const resolveKeywordDataForValue = (lookupValue, candidateRows) => {
-        if (!lookupValue) return null;
+        const normalizedLookup =
+          typeof lookupValue === "string"
+            ? lookupValue.replace(/\*/g, "").trim()
+            : lookupValue ?? null;
+        const valueToUse =
+          typeof normalizedLookup === "string" && normalizedLookup.length === 0
+            ? null
+            : normalizedLookup;
+
+        if (!valueToUse) return null;
 
         const rowsToUse =
           candidateRows !== undefined
             ? candidateRows
-            : fetchComponentRows(lookupValue);
+            : fetchComponentRows(valueToUse);
         const simplifiedCandidate =
           rowsToUse.find((row) => row.simplified)?.simplified ??
           rowsToUse[0]?.simplified ??
           null;
 
-        const simplifiedValue = simplifiedCandidate ?? lookupValue;
+        const simplifiedValue = simplifiedCandidate ?? valueToUse;
 
         return lookupKeywordBySimplified(simplifiedValue);
       };
@@ -973,6 +988,8 @@ function Dashboard({ db }) {
 
           let resolvedLeft = entryLeft;
           let resolvedRight = entryRight;
+          let leftTransformed = false;
+          let rightTransformed = false;
 
           if (resolvedLeft === "*") {
             resolvedLeft =
@@ -984,10 +1001,72 @@ function Dashboard({ db }) {
               resolvedLeft && resolvedLeft !== "*" ? resolvedLeft : null;
           }
 
+          const normalizeComponentValue = (component) => {
+            if (component === null || component === undefined) {
+              return { value: null, transformed: false };
+            }
+
+            if (typeof component !== "string") {
+              return { value: component ?? null, transformed: false };
+            }
+
+            if (component === "*") {
+              return { value: null, transformed: false };
+            }
+
+            if (component.includes("*")) {
+              const trimmedValue = component.replace(/\*/g, "").trim();
+
+              return {
+                value: trimmedValue || null,
+                transformed: true,
+              };
+            }
+
+            return { value: component, transformed: false };
+          };
+
+          const normalizedLeft = normalizeComponentValue(resolvedLeft);
+          resolvedLeft = normalizedLeft.value;
+          leftTransformed = normalizedLeft.transformed;
+
+          const normalizedRight = normalizeComponentValue(resolvedRight);
+          resolvedRight = normalizedRight.value;
+          rightTransformed = normalizedRight.transformed;
+
           const baseRows =
             rows.length > 0 ? rows : fetchComponentRows(targetValue);
           const leftRows = fetchComponentRows(resolvedLeft);
           const rightRows = fetchComponentRows(resolvedRight);
+
+          const collectComponentEntries = (componentValue, transformed) => {
+            if (!componentValue || typeof componentValue !== "string") {
+              return [];
+            }
+
+            const characters = Array.from(componentValue).filter(
+              (char) => char.trim().length > 0
+            );
+
+            return characters.map((char) => {
+              const charKeywordData = resolveKeywordDataForValue(char);
+
+              return {
+                value: char,
+                keyword: charKeywordData?.keyword ?? null,
+                bookOrder:
+                  typeof charKeywordData?.bookOrder === "number"
+                    ? charKeywordData.bookOrder
+                    : null,
+                transformed,
+              };
+            });
+          };
+
+          const components = [
+            ...collectComponentEntries(resolvedLeft, leftTransformed),
+            ...collectComponentEntries(resolvedRight, rightTransformed),
+          ];
 
           const keywordData = resolveKeywordDataForValue(targetValue, baseRows);
           const leftKeywordData = resolveKeywordDataForValue(
@@ -1008,6 +1087,9 @@ function Dashboard({ db }) {
               right: resolvedRight,
               leftKeyword: leftKeywordData?.keyword ?? null,
               rightKeyword: rightKeywordData?.keyword ?? null,
+              leftTransformed,
+              rightTransformed,
+              components,
             }),
             rows: baseRows,
             leftRows,
