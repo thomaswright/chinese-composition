@@ -237,7 +237,7 @@ function BookOrderNavigator({ navigation, onSelect }) {
           }
         }}
         disabled={!hasPrevious}
-        className="w-8 h-8 flex items-center justify-center border rounded disabled:opacity-40 disabled:cursor-not-allowed"
+        className="w-8 h-8 flex items-center justify-center bg-gray-100 rounded disabled:opacity-40 disabled:cursor-not-allowed"
         aria-label="Previous keyword"
       >
         <LucideChevronLeft className="w-4 h-4" />
@@ -253,7 +253,7 @@ function BookOrderNavigator({ navigation, onSelect }) {
           }
         }}
         disabled={!hasNext}
-        className="w-8 h-8 flex items-center justify-center border rounded disabled:opacity-40 disabled:cursor-not-allowed"
+        className="w-8 h-8 flex items-center justify-center bg-gray-100 rounded disabled:opacity-40 disabled:cursor-not-allowed"
         aria-label="Next keyword"
       >
         <LucideChevronRight className="w-4 h-4" />
@@ -422,7 +422,7 @@ function SearchBar({
             onQuerySubmit(event.currentTarget.value);
           }
         }}
-        className="flex-1 px-3 py-1 border rounded text-lg"
+        className="flex-1 px-3 py-1 border border-gray-400 rounded-lg text-lg"
       />
       <BookOrderNavigator navigation={bookOrderNav} onSelect={onSelectValue} />
     </div>
@@ -448,7 +448,7 @@ function DefinitionView({
         onSelectValue={onSelectValue}
       />
 
-      <div className="divide-y max-w-lg">
+      <div className="divide-y max-w-lg divide-gray-300 border-t border-gray-300">
         {results.map((row) => {
           const englishMeanings = row.english
             ? row.english
@@ -490,7 +490,10 @@ function HistoryList({ history, onSelect, isVisible }) {
   }
 
   return (
-    <nav aria-label="Query history" className="mt-6 px-3 max-w-lg">
+    <nav
+      aria-label="Query history"
+      className="mt-3 pt-3 px-3 max-w-lg border-t border-gray-300"
+    >
       <div>History</div>
       <div className="flex flex-wrap items-center gap-3">
         {history.toReversed().map((item) => (
