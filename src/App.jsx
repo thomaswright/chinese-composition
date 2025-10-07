@@ -844,18 +844,31 @@ function Dashboard({ db }) {
           const { left: entryLeft, right: entryRight } =
             lookupDecomposition(targetValue);
 
+          let resolvedLeft = entryLeft;
+          let resolvedRight = entryRight;
+
+          if (resolvedLeft === "*") {
+            resolvedLeft =
+              resolvedRight && resolvedRight !== "*" ? resolvedRight : null;
+          }
+
+          if (resolvedRight === "*") {
+            resolvedRight =
+              resolvedLeft && resolvedLeft !== "*" ? resolvedLeft : null;
+          }
+
           const baseRows =
             rows.length > 0 ? rows : fetchComponentRows(targetValue);
-          const leftRows = fetchComponentRows(entryLeft);
-          const rightRows = fetchComponentRows(entryRight);
+          const leftRows = fetchComponentRows(resolvedLeft);
+          const rightRows = fetchComponentRows(resolvedRight);
 
           const keywordData = resolveKeywordDataForValue(targetValue, baseRows);
           const leftKeywordData = resolveKeywordDataForValue(
-            entryLeft,
+            resolvedLeft,
             leftRows
           );
           const rightKeywordData = resolveKeywordDataForValue(
-            entryRight,
+            resolvedRight,
             rightRows
           );
 
@@ -864,8 +877,8 @@ function Dashboard({ db }) {
               value: targetValue,
               keyword: keywordData?.keyword ?? null,
               bookOrder: keywordData?.bookOrder ?? null,
-              left: entryLeft,
-              right: entryRight,
+              left: resolvedLeft,
+              right: resolvedRight,
               leftKeyword: leftKeywordData?.keyword ?? null,
               rightKeyword: rightKeywordData?.keyword ?? null,
             }),
