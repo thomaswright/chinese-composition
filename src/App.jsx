@@ -609,7 +609,7 @@ function DecompositionSection({ decompositions, query, onSelectValue }) {
   }
 
   return (
-    <div className="px-3 py-3 flex flex-col items-start gap-3">
+    <div className="px-3 py-3 flex flex-col items-center gap-3 ">
       {decompositions.map((item, index) => {
         const displayValue = item.value ?? query ?? "";
         const key = `${displayValue || "entry"}-${index}`;
@@ -633,7 +633,7 @@ function DecompositionSection({ decompositions, query, onSelectValue }) {
         return (
           <div
             key={key}
-            className="flex flex-row justify-start gap-3 items-center"
+            className="flex flex-row justify-start gap-3 items-center "
           >
             {item.left && (
               <button
