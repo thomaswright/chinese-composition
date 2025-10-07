@@ -279,9 +279,12 @@ function KeywordList({
   keywords,
   loading,
   onSelect,
-  activeSimplified,
+  activeValue,
   isVisible,
+  script,
 }) {
+  const effectiveScript =
+    script === "traditional" ? "traditional" : "simplified";
   const containerRef = useRef(null);
   const { scrollTop, setScrollTop, handleScroll } =
     useScrollPosition(isVisible);
@@ -290,9 +293,10 @@ function KeywordList({
     isActive: isVisible,
     dependencies: [loading, keywords.length],
   });
-  const activeIndex = keywords.findIndex(
-    (item) => item.simplified === activeSimplified
-  );
+  const activeIndex = keywords.findIndex((item) => {
+    if (!activeValue) return false;
+    return item.simplified === activeValue || item.traditional === activeValue;
+  });
 
   useScrollToIndex({
     containerRef,
@@ -346,22 +350,35 @@ function KeywordList({
             <div className="divide-y">
               {itemsToRender.map((item, index) => {
                 const actualIndex = startIndex + index;
-                const isActive = item.simplified === activeSimplified;
+                const displayCharacter =
+                  effectiveScript === "traditional"
+                    ? item.traditional || item.simplified
+                    : item.simplified || item.traditional;
+                const buttonValue = displayCharacter || item.simplified || "";
+                const isCurrent =
+                  activeValue &&
+                  (buttonValue === activeValue ||
+                    item.simplified === activeValue ||
+                    item.traditional === activeValue);
 
                 return (
                   <button
-                    key={`${item.simplified ?? ""}-${
+                    key={`${item.simplified ?? item.traditional ?? ""}-${
                       item.book_order ?? ""
-                    }-${actualIndex}`}
+                    }-${actualIndex}-${effectiveScript}`}
                     type="button"
-                    onClick={() => onSelect(item.simplified)}
+                    onClick={() => {
+                      if (buttonValue) {
+                        onSelect(buttonValue);
+                      }
+                    }}
                     className={`w-full flex items-center justify-between gap-3 px-3 py-2 text-left hover:bg-gray-50 ${
-                      isActive ? "bg-blue-50" : ""
+                      isCurrent ? "bg-blue-50" : ""
                     }`}
-                    aria-current={isActive ? "true" : undefined}
+                    aria-current={isCurrent ? "true" : undefined}
                   >
                     <div className="flex items-center gap-3">
-                      <span className="text-lg">{item.simplified}</span>
+                      <span className="text-lg">{displayCharacter}</span>
                       {item.keyword && (
                         <span className="text-sm text-gray-600">
                           {item.keyword}
@@ -384,7 +401,9 @@ function KeywordList({
   );
 }
 
-function ViewTabs({ view, onSelect }) {
+function ViewTabs({ view, onSelect, keywordScript, onSelectKeywordScript }) {
+  const resolvedKeywordScript =
+    keywordScript === "traditional" ? "traditional" : "simplified";
   const tabButtonClass = (tab) =>
     `px-3 py-1 text-sm border rounded transition-colors ${
       view === tab
@@ -392,26 +411,64 @@ function ViewTabs({ view, onSelect }) {
         : "border-transparent text-gray-600 hover:border-gray-300"
     }`;
 
+  const scriptButtonClass = (mode) =>
+    `px-2 py-1 text-sm border rounded transition-colors ${
+      resolvedKeywordScript === mode
+        ? "border-blue-500 bg-blue-50 text-blue-700"
+        : "border-transparent text-gray-600 hover:border-gray-300"
+    }`;
+
+  const handleScriptSelect = (mode) => {
+    if (!onSelectKeywordScript) return;
+    onSelectKeywordScript(mode);
+  };
+
   return (
-    <div role="tablist" aria-label="View selection" className="flex gap-2 py-2">
-      <button
-        type="button"
-        role="tab"
-        aria-selected={view === DEFAULT_VIEW}
-        className={tabButtonClass(DEFAULT_VIEW)}
-        onClick={() => onSelect(DEFAULT_VIEW)}
-      >
-        Definition
-      </button>
-      <button
-        type="button"
-        role="tab"
-        aria-selected={view === VIEW_KEYWORDS}
-        className={tabButtonClass(VIEW_KEYWORDS)}
-        onClick={() => onSelect(VIEW_KEYWORDS)}
-      >
-        Keyword List
-      </button>
+    <div className="flex items-center gap-3 py-2 justify-between max-w-lg">
+      <div role="tablist" aria-label="View selection" className="flex gap-2">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={view === DEFAULT_VIEW}
+          className={tabButtonClass(DEFAULT_VIEW)}
+          onClick={() => onSelect(DEFAULT_VIEW)}
+        >
+          Definition
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={view === VIEW_KEYWORDS}
+          className={tabButtonClass(VIEW_KEYWORDS)}
+          onClick={() => onSelect(VIEW_KEYWORDS)}
+        >
+          Keyword List
+        </button>
+      </div>
+      {view === VIEW_KEYWORDS && onSelectKeywordScript ? (
+        <div
+          role="group"
+          aria-label="Keyword list script"
+          className="flex gap-1"
+        >
+          <button
+            type="button"
+            className={scriptButtonClass("simplified")}
+            onClick={() => handleScriptSelect("simplified")}
+            aria-pressed={resolvedKeywordScript === "simplified"}
+          >
+            简
+          </button>
+          <button
+            type="button"
+            className={scriptButtonClass("traditional")}
+            onClick={() => handleScriptSelect("traditional")}
+            aria-pressed={resolvedKeywordScript === "traditional"}
+          >
+            繁
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -607,6 +664,7 @@ function Dashboard({ db }) {
   );
   const [bookOrderNav, setBookOrderNav] = useState(createEmptyBookOrderNav);
   const [view, setView] = useState(() => getViewFromUrl());
+  const [keywordScript, setKeywordScript] = useState("simplified");
   const [allKeywords, setAllKeywords] = useState([]);
   const [loadingKeywords, setLoadingKeywords] = useState(false);
   const [history, setHistory] = useState(() => {
@@ -762,7 +820,8 @@ function Dashboard({ db }) {
           const { left: entryLeft, right: entryRight } =
             lookupDecomposition(targetValue);
 
-          const baseRows = rows.length > 0 ? rows : fetchComponentRows(targetValue);
+          const baseRows =
+            rows.length > 0 ? rows : fetchComponentRows(targetValue);
           const leftRows = fetchComponentRows(entryLeft);
           const rightRows = fetchComponentRows(entryRight);
 
@@ -886,7 +945,10 @@ function Dashboard({ db }) {
 
     try {
       stmt = db.prepare(
-        "SELECT simplified, keyword, book_order FROM hanzi_keywords ORDER BY (book_order IS NULL), book_order ASC"
+        `SELECT hk.simplified, h.traditional, hk.keyword, hk.book_order
+         FROM hanzi_keywords hk
+         LEFT JOIN hanzi h ON h.simplified = hk.simplified
+         ORDER BY (hk.book_order IS NULL), hk.book_order ASC`
       );
 
       while (stmt.step()) {
@@ -1024,13 +1086,26 @@ function Dashboard({ db }) {
     }
   };
 
+  const handleSelectKeywordScript = (mode) => {
+    if (mode === "traditional") {
+      setKeywordScript("traditional");
+    } else {
+      setKeywordScript("simplified");
+    }
+  };
+
   const trimmedQuery = (query ?? "").trim();
   const isKeywordView = view === VIEW_KEYWORDS;
   const isDefinitionView = !isKeywordView;
 
   return (
     <div className="p-3 flex flex-col">
-      <ViewTabs view={view} onSelect={handleSelectViewTab} />
+      <ViewTabs
+        view={view}
+        onSelect={handleSelectViewTab}
+        keywordScript={keywordScript}
+        onSelectKeywordScript={handleSelectKeywordScript}
+      />
 
       <SearchBar
         query={query ?? ""}
@@ -1044,8 +1119,9 @@ function Dashboard({ db }) {
         keywords={allKeywords}
         loading={loadingKeywords}
         onSelect={handleSelectValue}
-        activeSimplified={trimmedQuery || null}
+        activeValue={trimmedQuery || null}
         isVisible={isKeywordView}
+        script={keywordScript}
       />
 
       <DefinitionView
