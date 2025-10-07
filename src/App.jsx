@@ -230,25 +230,38 @@ function LucideChevronRight({ className }) {
   );
 }
 
-function BookOrderNavigator({ navigation, onSelect }) {
+function BookOrderNavigator({ navigation, onSelect, script }) {
   const current = navigation?.current;
+
+  const resolvedScript =
+    script === "traditional" ? "traditional" : "simplified";
 
   if (!current || current.bookOrder == null) {
     return <div className="w-32 flex-none" aria-hidden="true" />;
   }
 
-  const hasPrevious = Boolean(navigation?.previous?.simplified);
-  const hasNext = Boolean(navigation?.next?.simplified);
+  const getNavigationValue = (entry) => {
+    if (!entry) return null;
+    if (resolvedScript === "traditional" && entry.traditional) {
+      return entry.traditional;
+    }
+    return entry.simplified ?? entry.traditional ?? null;
+  };
+
+  const handleNavigate = (entry) => {
+    const value = getNavigationValue(entry);
+    if (!value) return;
+    onSelect(value);
+  };
+
+  const hasPrevious = Boolean(getNavigationValue(navigation?.previous));
+  const hasNext = Boolean(getNavigationValue(navigation?.next));
 
   return (
     <div className="flex items-center justify-center gap-2 w-32 flex-none">
       <button
         type="button"
-        onClick={() => {
-          if (hasPrevious) {
-            onSelect(navigation.previous.simplified);
-          }
-        }}
+        onClick={() => handleNavigate(navigation?.previous)}
         disabled={!hasPrevious}
         className="w-8 h-8 flex items-center justify-center bg-gray-100 rounded disabled:opacity-40 disabled:cursor-not-allowed"
         aria-label="Previous keyword"
@@ -260,11 +273,7 @@ function BookOrderNavigator({ navigation, onSelect }) {
       </span>
       <button
         type="button"
-        onClick={() => {
-          if (hasNext) {
-            onSelect(navigation.next.simplified);
-          }
-        }}
+        onClick={() => handleNavigate(navigation?.next)}
         disabled={!hasNext}
         className="w-8 h-8 flex items-center justify-center bg-gray-100 rounded disabled:opacity-40 disabled:cursor-not-allowed"
         aria-label="Next keyword"
@@ -479,6 +488,7 @@ function SearchBar({
   onQuerySubmit,
   bookOrderNav,
   onSelectValue,
+  keywordScript,
 }) {
   return (
     <div className="mt-1 flex items-center gap-3 max-w-lg">
@@ -494,7 +504,11 @@ function SearchBar({
         }}
         className="flex-1 px-3 py-1 border border-gray-400 rounded-lg text-lg"
       />
-      <BookOrderNavigator navigation={bookOrderNav} onSelect={onSelectValue} />
+      <BookOrderNavigator
+        navigation={bookOrderNav}
+        onSelect={onSelectValue}
+        script={keywordScript}
+      />
     </div>
   );
 }
@@ -730,10 +744,19 @@ function Dashboard({ db }) {
         "SELECT keyword, book_order FROM hanzi_keywords WHERE simplified = ?"
       );
       const previousBookOrderStmt = db.prepare(
-        "SELECT simplified, book_order FROM hanzi_keywords WHERE book_order < ? ORDER BY book_order DESC LIMIT 1"
+        `SELECT simplified, book_order, traditional
+         FROM hanzi_keywords
+         WHERE book_order < ?
+         ORDER BY book_order DESC
+         LIMIT 1`
       );
+
       const nextBookOrderStmt = db.prepare(
-        "SELECT simplified, book_order FROM hanzi_keywords WHERE book_order > ? ORDER BY book_order ASC LIMIT 1"
+        `SELECT simplified, book_order, traditional
+         FROM hanzi_keywords
+         WHERE book_order > ?
+         ORDER BY book_order ASC
+         LIMIT 1`
       );
 
       const lookupDecomposition = (lookupValue) => {
@@ -878,11 +901,12 @@ function Dashboard({ db }) {
             return null;
           }
 
-          const { simplified, book_order } = stmt.getAsObject();
+          const { simplified, book_order, traditional } = stmt.getAsObject();
           stmt.reset();
 
           return {
             simplified: simplified || null,
+            traditional: traditional || null,
             bookOrder: typeof book_order === "number" ? book_order : null,
           };
         };
@@ -909,6 +933,16 @@ function Dashboard({ db }) {
             ? [mainEntry]
             : characters.map((char) => buildDecompositionEntry(char).entry);
 
+        const findRowForValue = (lookupValue) =>
+          matchedRows.find(
+            (row) =>
+              row.simplified === lookupValue || row.traditional === lookupValue
+          );
+
+        const currentRow = findRowForValue(value);
+        const currentSimplified = currentRow?.simplified ?? value ?? null;
+        const currentTraditional = currentRow?.traditional ?? null;
+
         setDecompositions(
           decompositionEntries.length
             ? decompositionEntries
@@ -917,7 +951,11 @@ function Dashboard({ db }) {
         setBookOrderNav({
           current:
             mainBookOrder != null
-              ? { simplified: value, bookOrder: mainBookOrder }
+              ? {
+                  simplified: currentSimplified,
+                  traditional: currentTraditional,
+                  bookOrder: mainBookOrder,
+                }
               : null,
           previous: previousBook,
           next: nextBook,
@@ -945,10 +983,9 @@ function Dashboard({ db }) {
 
     try {
       stmt = db.prepare(
-        `SELECT hk.simplified, h.traditional, hk.keyword, hk.book_order
-         FROM hanzi_keywords hk
-         LEFT JOIN hanzi h ON h.simplified = hk.simplified
-         ORDER BY (hk.book_order IS NULL), hk.book_order ASC`
+        `SELECT simplified,  keyword, book_order, traditional
+        FROM hanzi_keywords
+        ORDER BY (book_order IS NULL), book_order ASC`
       );
 
       while (stmt.step()) {
@@ -1113,6 +1150,7 @@ function Dashboard({ db }) {
         onQuerySubmit={handleQuerySubmit}
         bookOrderNav={bookOrderNav}
         onSelectValue={handleSelectValue}
+        keywordScript={keywordScript}
       />
 
       <KeywordList
