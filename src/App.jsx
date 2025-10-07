@@ -37,14 +37,27 @@ function applyViewParam(params, viewValue) {
   }
 }
 
-function createEmptyDecomposition() {
+function createEmptyDecompositionList() {
+  return [];
+}
+
+function createEmptyDecompositionEntry({
+  value,
+  keyword = null,
+  bookOrder = null,
+  left = null,
+  right = null,
+  leftKeyword = null,
+  rightKeyword = null,
+}) {
   return {
-    valueKeyword: null,
-    valueBookOrder: null,
-    left: null,
-    right: null,
-    leftKeyword: null,
-    rightKeyword: null,
+    value,
+    valueKeyword: keyword,
+    valueBookOrder: bookOrder,
+    left,
+    right,
+    leftKeyword,
+    rightKeyword,
   };
 }
 
@@ -431,7 +444,7 @@ function SearchBar({
 
 function DefinitionView({
   isVisible,
-  decomposition,
+  decompositions,
   query,
   results,
   onSelectValue,
@@ -443,7 +456,7 @@ function DefinitionView({
   return (
     <div className="mt-2">
       <DecompositionSection
-        decomposition={decomposition}
+        decompositions={decompositions}
         query={query}
         onSelectValue={onSelectValue}
       />
@@ -512,11 +525,8 @@ function HistoryList({ history, onSelect, isVisible }) {
   );
 }
 
-function DecompositionSection({ decomposition, query, onSelectValue }) {
-  const showDecomposition =
-    (decomposition.left || decomposition.right) && decomposition.right !== "*";
-
-  if (!showDecomposition) {
+function DecompositionSection({ decompositions, query, onSelectValue }) {
+  if (!decompositions.length) {
     return (
       <div className="px-3 py-3 text-gray-400 flex flex-row justify-start gap-1 items-center">
         no decomposition
@@ -525,45 +535,65 @@ function DecompositionSection({ decomposition, query, onSelectValue }) {
   }
 
   return (
-    <div className="px-3 py-3 flex flex-row justify-start gap-3 items-center">
-      {decomposition.left && (
-        <button
-          type="button"
-          onClick={() => onSelectValue(decomposition.left)}
-          className="text-left flex flex-col items-center flex-none w-fit px-2 py-1 rounded-md transition-colors hover:bg-gray-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500"
-        >
-          <span className="text-lg leading-tight">{decomposition.left}</span>
-          {decomposition.leftKeyword && (
-            <span className="">{decomposition.leftKeyword}</span>
-          )}
-        </button>
-      )}
-      <span>+</span>
-      {decomposition.right && (
-        <button
-          type="button"
-          onClick={() => onSelectValue(decomposition.right)}
-          className="text-left flex flex-col items-center flex-none w-fit px-2 py-1 rounded-md transition-colors hover:bg-gray-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500"
-        >
-          <span className="text-lg leading-tight">{decomposition.right}</span>
-          {decomposition.rightKeyword && (
-            <span className="">{decomposition.rightKeyword}</span>
-          )}
-        </button>
-      )}
-      <span>=</span>
-      {decomposition.right && (
-        <button
-          type="button"
-          onClick={() => onSelectValue(query)}
-          className="text-left flex flex-col items-center flex-none w-fit px-2 py-1 rounded-md transition-colors hover:bg-gray-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500"
-        >
-          <span className="text-lg leading-tight ">{query}</span>
-          {decomposition.valueKeyword && (
-            <span className="">{decomposition.valueKeyword}</span>
-          )}
-        </button>
-      )}
+    <div className="px-3 py-3 flex flex-col items-start gap-3">
+      {decompositions.map((item, index) => {
+        const displayValue = item.value ?? query ?? "";
+        const key = `${displayValue || "entry"}-${index}`;
+        const showDecomposition =
+          (item.left || item.right) && item.right !== "*";
+
+        if (!showDecomposition) {
+          return (
+            <div
+              key={key}
+              className="text-gray-400 flex flex-row justify-start gap-2 items-center"
+            >
+              {displayValue ? (
+                <span className="text-lg leading-tight">{displayValue}</span>
+              ) : null}
+              <span>no decomposition</span>
+            </div>
+          );
+        }
+
+        return (
+          <div
+            key={key}
+            className="flex flex-row justify-start gap-3 items-center"
+          >
+            {item.left && (
+              <button
+                type="button"
+                onClick={() => onSelectValue(item.left)}
+                className="text-left flex flex-col items-center flex-none w-fit px-2 py-1 rounded-md transition-colors hover:bg-gray-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500"
+              >
+                <span className="text-lg leading-tight">{item.left}</span>
+                {item.leftKeyword && <span>{item.leftKeyword}</span>}
+              </button>
+            )}
+            <span>+</span>
+            {item.right && (
+              <button
+                type="button"
+                onClick={() => onSelectValue(item.right)}
+                className="text-left flex flex-col items-center flex-none w-fit px-2 py-1 rounded-md transition-colors hover:bg-gray-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500"
+              >
+                <span className="text-lg leading-tight">{item.right}</span>
+                {item.rightKeyword && <span>{item.rightKeyword}</span>}
+              </button>
+            )}
+            <span>=</span>
+            <button
+              type="button"
+              onClick={() => onSelectValue(displayValue)}
+              className="text-left flex flex-col items-center flex-none w-fit px-2 py-1 rounded-md transition-colors hover:bg-gray-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500"
+            >
+              <span className="text-lg leading-tight ">{displayValue}</span>
+              {item.valueKeyword && <span>{item.valueKeyword}</span>}
+            </button>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -572,7 +602,9 @@ function Dashboard({ db }) {
   const [query, setQuery] = useState(() => getQueryFromUrl()); // input value
   const [results, setResults] = useState([]); // query results
   const [error, setError] = useState(null);
-  const [decomposition, setDecomposition] = useState(createEmptyDecomposition);
+  const [decompositions, setDecompositions] = useState(
+    createEmptyDecompositionList
+  );
   const [bookOrderNav, setBookOrderNav] = useState(createEmptyBookOrderNav);
   const [view, setView] = useState(() => getViewFromUrl());
   const [allKeywords, setAllKeywords] = useState([]);
@@ -611,7 +643,7 @@ function Dashboard({ db }) {
     try {
       if (!value) {
         setResults([]);
-        setDecomposition(createEmptyDecomposition());
+        setDecompositions(createEmptyDecompositionList());
         setBookOrderNav(createEmptyBookOrderNav());
         return;
       }
@@ -628,7 +660,7 @@ function Dashboard({ db }) {
 
       if (!matchedRows.length) {
         setResults([]);
-        setDecomposition(createEmptyDecomposition());
+        setDecompositions(createEmptyDecompositionList());
         setBookOrderNav(createEmptyBookOrderNav());
         return;
       }
@@ -698,16 +730,45 @@ function Dashboard({ db }) {
       };
 
       try {
-        const { left: leftDecomp, right: rightDecomp } =
-          lookupDecomposition(value);
+        const buildDecompositionEntry = (targetValue) => {
+          if (!targetValue) {
+            return createEmptyDecompositionEntry({
+              value: targetValue ?? null,
+            });
+          }
 
-        const leftDecompRows = fetchComponentRows(leftDecomp);
-        const rightDecompRows = fetchComponentRows(rightDecomp);
-        const keywordData = lookupKeyword(value);
-        const keyword = keywordData?.keyword ?? null;
-        const leftKeyword = lookupKeyword(leftDecomp)?.keyword ?? null;
-        const rightKeyword = lookupKeyword(rightDecomp)?.keyword ?? null;
-        const valueBookOrder = keywordData?.bookOrder ?? null;
+          const { left: entryLeft, right: entryRight } =
+            lookupDecomposition(targetValue);
+
+          const keywordData = lookupKeyword(targetValue);
+          const keyword = keywordData?.keyword ?? null;
+          const bookOrder = keywordData?.bookOrder ?? null;
+          const leftKeyword = lookupKeyword(entryLeft)?.keyword ?? null;
+          const rightKeyword = lookupKeyword(entryRight)?.keyword ?? null;
+
+          return createEmptyDecompositionEntry({
+            value: targetValue,
+            keyword,
+            bookOrder,
+            left: entryLeft,
+            right: entryRight,
+            leftKeyword,
+            rightKeyword,
+          });
+        };
+
+        const mainEntry = buildDecompositionEntry(value);
+        const {
+          left: mainLeft,
+          right: mainRight,
+          valueKeyword: mainKeyword,
+          valueBookOrder: mainBookOrder,
+          leftKeyword: mainLeftKeyword,
+          rightKeyword: mainRightKeyword,
+        } = mainEntry;
+
+        const leftDecompRows = fetchComponentRows(mainLeft);
+        const rightDecompRows = fetchComponentRows(mainRight);
 
         const getNeighbor = (stmt, order) => {
           if (typeof order !== "number") return null;
@@ -728,32 +789,36 @@ function Dashboard({ db }) {
           };
         };
 
-        const previousBook = getNeighbor(previousBookOrderStmt, valueBookOrder);
-        const nextBook = getNeighbor(nextBookOrderStmt, valueBookOrder);
+        const previousBook = getNeighbor(previousBookOrderStmt, mainBookOrder);
+        const nextBook = getNeighbor(nextBookOrderStmt, mainBookOrder);
 
         const enrichedRows = matchedRows.map((row) => ({
           ...row,
-          leftDecomp,
-          rightDecomp,
+          leftDecomp: mainLeft,
+          rightDecomp: mainRight,
           leftDecompRows,
           rightDecompRows,
-          keyword,
-          leftKeyword,
-          rightKeyword,
+          keyword: mainKeyword,
+          leftKeyword: mainLeftKeyword,
+          rightKeyword: mainRightKeyword,
         }));
 
-        setDecomposition({
-          valueKeyword: keyword,
-          valueBookOrder,
-          left: leftDecomp,
-          right: rightDecomp,
-          leftKeyword,
-          rightKeyword,
-        });
+        const characters = Array.from(value ?? "").filter(
+          (char) => char.trim().length > 0
+        );
+        const decompositionEntries = characters.map((char) =>
+          char === value ? mainEntry : buildDecompositionEntry(char)
+        );
+
+        setDecompositions(
+          decompositionEntries.length
+            ? decompositionEntries
+            : createEmptyDecompositionList()
+        );
         setBookOrderNav({
           current:
-            valueBookOrder != null
-              ? { simplified: value, bookOrder: valueBookOrder }
+            mainBookOrder != null
+              ? { simplified: value, bookOrder: mainBookOrder }
               : null,
           previous: previousBook,
           next: nextBook,
@@ -945,7 +1010,7 @@ function Dashboard({ db }) {
 
       <DefinitionView
         isVisible={isDefinitionView}
-        decomposition={decomposition}
+        decompositions={decompositions}
         query={query}
         results={results}
         onSelectValue={handleSelectValue}
