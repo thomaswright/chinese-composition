@@ -440,61 +440,13 @@ function DefinitionView({
     return null;
   }
 
-  const showDecomposition =
-    (decomposition.left || decomposition.right) && decomposition.right !== "*";
-
   return (
     <div className="mt-2">
-      {showDecomposition ? (
-        <div className="px-5 py-3 flex flex-row justify-start gap-3 items-center">
-          {decomposition.left && (
-            <button
-              type="button"
-              onClick={() => onSelectValue(decomposition.left)}
-              className=" text-left  hover:underline flex flex-col items-center flex-none w-fit"
-            >
-              <span className="text-lg leading-tight">
-                {decomposition.left}
-              </span>
-              {decomposition.leftKeyword && (
-                <span className="">{decomposition.leftKeyword}</span>
-              )}
-            </button>
-          )}
-          <span>+</span>
-          {decomposition.right && (
-            <button
-              type="button"
-              onClick={() => onSelectValue(decomposition.right)}
-              className="text-left  hover:underline flex flex-col items-center flex-none w-fit"
-            >
-              <span className="text-lg leading-tight">
-                {decomposition.right}
-              </span>
-              {decomposition.rightKeyword && (
-                <span className="">{decomposition.rightKeyword}</span>
-              )}
-            </button>
-          )}
-          <span>=</span>
-          {decomposition.right && (
-            <button
-              type="button"
-              onClick={() => onSelectValue(query)}
-              className="text-left  hover:underline flex flex-col items-center flex-none w-fit"
-            >
-              <span className="text-lg leading-tight ">{query}</span>
-              {decomposition.valueKeyword && (
-                <span className="">{decomposition.valueKeyword}</span>
-              )}
-            </button>
-          )}
-        </div>
-      ) : (
-        <div className="px-3 py-3 text-gray-400 flex flex-row justify-start gap-1 items-center">
-          no decomposition
-        </div>
-      )}
+      <DecompositionSection
+        decomposition={decomposition}
+        query={query}
+        onSelectValue={onSelectValue}
+      />
 
       <div className="divide-y max-w-lg">
         {results.map((row) => {
@@ -541,12 +493,12 @@ function HistoryList({ history, onSelect, isVisible }) {
     <nav aria-label="Query history" className="mt-6 px-3 max-w-lg">
       <div>History</div>
       <div className="flex flex-wrap items-center gap-3">
-        {history.map((item) => (
+        {history.toReversed().map((item) => (
           <div key={item} className="flex items-center gap-2">
             <button
               type="button"
               onClick={() => onSelect(item)}
-              className="text-blue-600 hover:underline"
+              className=" px-2 py-1 rounded-md transition-colors hover:bg-gray-100"
             >
               {item}
             </button>
@@ -554,6 +506,62 @@ function HistoryList({ history, onSelect, isVisible }) {
         ))}
       </div>
     </nav>
+  );
+}
+
+function DecompositionSection({ decomposition, query, onSelectValue }) {
+  const showDecomposition =
+    (decomposition.left || decomposition.right) && decomposition.right !== "*";
+
+  if (!showDecomposition) {
+    return (
+      <div className="px-3 py-3 text-gray-400 flex flex-row justify-start gap-1 items-center">
+        no decomposition
+      </div>
+    );
+  }
+
+  return (
+    <div className="px-3 py-3 flex flex-row justify-start gap-3 items-center">
+      {decomposition.left && (
+        <button
+          type="button"
+          onClick={() => onSelectValue(decomposition.left)}
+          className="text-left flex flex-col items-center flex-none w-fit px-2 py-1 rounded-md transition-colors hover:bg-gray-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500"
+        >
+          <span className="text-lg leading-tight">{decomposition.left}</span>
+          {decomposition.leftKeyword && (
+            <span className="">{decomposition.leftKeyword}</span>
+          )}
+        </button>
+      )}
+      <span>+</span>
+      {decomposition.right && (
+        <button
+          type="button"
+          onClick={() => onSelectValue(decomposition.right)}
+          className="text-left flex flex-col items-center flex-none w-fit px-2 py-1 rounded-md transition-colors hover:bg-gray-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500"
+        >
+          <span className="text-lg leading-tight">{decomposition.right}</span>
+          {decomposition.rightKeyword && (
+            <span className="">{decomposition.rightKeyword}</span>
+          )}
+        </button>
+      )}
+      <span>=</span>
+      {decomposition.right && (
+        <button
+          type="button"
+          onClick={() => onSelectValue(query)}
+          className="text-left flex flex-col items-center flex-none w-fit px-2 py-1 rounded-md transition-colors hover:bg-gray-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500"
+        >
+          <span className="text-lg leading-tight ">{query}</span>
+          {decomposition.valueKeyword && (
+            <span className="">{decomposition.valueKeyword}</span>
+          )}
+        </button>
+      )}
+    </div>
   );
 }
 
