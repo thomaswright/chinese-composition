@@ -708,6 +708,27 @@ function Dashboard({ db }) {
     return rows;
   };
 
+  const fetchKeywordRowsByKeyword = (keywordValue) => {
+    if (!db || !keywordValue) return [];
+
+    const rows = [];
+    const stmt = db.prepare(
+      "SELECT simplified, keyword, book_order, traditional FROM hanzi_keywords WHERE keyword = ?"
+    );
+
+    try {
+      stmt.bind([keywordValue]);
+
+      while (stmt.step()) {
+        rows.push(stmt.getAsObject());
+      }
+    } finally {
+      stmt.free();
+    }
+
+    return rows;
+  };
+
   const runQuery = (value) => {
     if (!db) return;
 
@@ -721,13 +742,35 @@ function Dashboard({ db }) {
         return;
       }
 
+      let resolvedQueryValue = trimmedValue;
+
       const traditionRows = fetchHanziRows("traditional", trimmedValue);
       const simplifiedRows = fetchHanziRows("simplified", trimmedValue);
 
-      const matchedRows = uniqueById(
+      let matchedRows = uniqueById(
         [...traditionRows, ...simplifiedRows],
         "id"
       );
+
+      if (!matchedRows.length) {
+        const keywordMatches = fetchKeywordRowsByKeyword(trimmedValue);
+        const simplifiedCandidates = keywordMatches
+          .map((row) => row.simplified)
+          .filter(Boolean);
+        const keywordMatchedRows = uniqueById(
+          simplifiedCandidates.flatMap((candidate) =>
+            fetchHanziRows("simplified", candidate)
+          ),
+          "id"
+        );
+
+        if (keywordMatchedRows.length) {
+          matchedRows = keywordMatchedRows;
+          resolvedQueryValue =
+            simplifiedCandidates.find((candidate) => candidate) ??
+            trimmedValue;
+        }
+      }
 
       if (!matchedRows.length) {
         setResults([]);
@@ -892,7 +935,7 @@ function Dashboard({ db }) {
           entry: mainEntry,
           leftRows: mainLeftRows,
           rightRows: mainRightRows,
-        } = buildDecompositionEntry(trimmedValue, { rows: matchedRows });
+        } = buildDecompositionEntry(resolvedQueryValue, { rows: matchedRows });
         const {
           left: mainLeft,
           right: mainRight,
@@ -939,7 +982,7 @@ function Dashboard({ db }) {
           rightKeyword: mainRightKeyword,
         }));
 
-        const characters = Array.from(trimmedValue).filter(
+        const characters = Array.from(resolvedQueryValue).filter(
           (char) => char.trim().length > 0
         );
         const decompositionEntries =
@@ -953,9 +996,9 @@ function Dashboard({ db }) {
               row.simplified === lookupValue || row.traditional === lookupValue
           );
 
-        const currentRow = findRowForValue(trimmedValue);
+        const currentRow = findRowForValue(resolvedQueryValue);
         const currentSimplified =
-          currentRow?.simplified ?? trimmedValue ?? null;
+          currentRow?.simplified ?? resolvedQueryValue ?? null;
         const currentTraditional = currentRow?.traditional ?? null;
 
         setDecompositions(
