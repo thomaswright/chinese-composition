@@ -639,7 +639,7 @@ function DecompositionSection({ decompositions, query, onSelectValue }) {
               <button
                 type="button"
                 onClick={() => onSelectValue(item.left)}
-                className="text-left flex flex-col items-center flex-none w-fit px-2 py-1 rounded-md transition-colors hover:bg-gray-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500"
+                className="text-left flex flex-col items-center flex-none w-fit px-2 py-1 rounded-md transition-colors hover:bg-gray-100 focus-visible:outline focus-visible:outline-blue-500"
               >
                 <span className="text-lg leading-tight">{item.left}</span>
                 {item.leftKeyword && <span>{item.leftKeyword}</span>}
@@ -650,7 +650,7 @@ function DecompositionSection({ decompositions, query, onSelectValue }) {
               <button
                 type="button"
                 onClick={() => onSelectValue(item.right)}
-                className="text-left flex flex-col items-center flex-none w-fit px-2 py-1 rounded-md transition-colors hover:bg-gray-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500"
+                className="text-left flex flex-col items-center flex-none w-fit px-2 py-1 rounded-md transition-colors hover:bg-gray-100 focus-visible:outline focus-visible:outline-blue-500"
               >
                 <span className="text-lg leading-tight">{item.right}</span>
                 {item.rightKeyword && <span>{item.rightKeyword}</span>}
@@ -660,7 +660,7 @@ function DecompositionSection({ decompositions, query, onSelectValue }) {
             <button
               type="button"
               onClick={() => onSelectValue(displayValue)}
-              className="text-left flex flex-col items-center flex-none w-fit px-2 py-1 rounded-md transition-colors hover:bg-gray-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500"
+              className="text-left flex flex-col items-center flex-none w-fit px-2 py-1 rounded-md transition-colors hover:bg-gray-100 focus-visible:outline focus-visible:outline-blue-500"
             >
               <span className="text-lg leading-tight ">{displayValue}</span>
               {item.valueKeyword && <span>{item.valueKeyword}</span>}
@@ -941,7 +941,8 @@ function Dashboard({ db }) {
           );
 
         const currentRow = findRowForValue(trimmedValue);
-        const currentSimplified = currentRow?.simplified ?? trimmedValue ?? null;
+        const currentSimplified =
+          currentRow?.simplified ?? trimmedValue ?? null;
         const currentTraditional = currentRow?.traditional ?? null;
 
         setDecompositions(
