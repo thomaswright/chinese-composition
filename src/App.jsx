@@ -752,11 +752,14 @@ function Dashboard({ db }) {
 
     const rows = [];
     const stmt = db.prepare(
-      "SELECT simplified, keyword, book_order, traditional FROM hanzi_keywords WHERE keyword LIKE ?"
+      `SELECT simplified, keyword, book_order, traditional
+      FROM hanzi_keywords
+      WHERE keyword LIKE ?
+      ORDER BY (keyword = ?) DESC, (book_order IS NULL), book_order ASC`
     );
 
     try {
-      stmt.bind([`%${keywordValue}%`]);
+      stmt.bind([`%${keywordValue}%`, keywordValue]);
 
       while (stmt.step()) {
         rows.push(stmt.getAsObject());
