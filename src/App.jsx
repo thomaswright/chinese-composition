@@ -46,24 +46,12 @@ function createEmptyDecompositionEntry({
   value,
   keyword = null,
   bookOrder = null,
-  left = null,
-  right = null,
-  leftKeyword = null,
-  rightKeyword = null,
-  leftTransformed = false,
-  rightTransformed = false,
   components = [],
 }) {
   return {
     value,
     valueKeyword: keyword,
     valueBookOrder: bookOrder,
-    left,
-    right,
-    leftKeyword,
-    rightKeyword,
-    leftTransformed,
-    rightTransformed,
     components,
   };
 }
@@ -978,8 +966,6 @@ function Dashboard({ db }) {
                 value: targetValue ?? null,
               }),
               rows: [],
-              leftRows: [],
-              rightRows: [],
             };
           }
 
@@ -988,8 +974,6 @@ function Dashboard({ db }) {
 
           let resolvedLeft = entryLeft;
           let resolvedRight = entryRight;
-          let leftTransformed = false;
-          let rightTransformed = false;
 
           if (resolvedLeft === "*") {
             resolvedLeft =
@@ -1010,6 +994,8 @@ function Dashboard({ db }) {
               return { value: component ?? null, transformed: false };
             }
 
+            const trimmedComponent = component.trim();
+
             if (component === "*") {
               return { value: null, transformed: false };
             }
@@ -1023,21 +1009,21 @@ function Dashboard({ db }) {
               };
             }
 
-            return { value: component, transformed: false };
+            if (trimmedComponent.length === 0) {
+              return { value: null, transformed: false };
+            }
+
+            return { value: trimmedComponent, transformed: false };
           };
 
           const normalizedLeft = normalizeComponentValue(resolvedLeft);
-          resolvedLeft = normalizedLeft.value;
-          leftTransformed = normalizedLeft.transformed;
-
           const normalizedRight = normalizeComponentValue(resolvedRight);
-          resolvedRight = normalizedRight.value;
-          rightTransformed = normalizedRight.transformed;
 
           const baseRows =
             rows.length > 0 ? rows : fetchComponentRows(targetValue);
-          const leftRows = fetchComponentRows(resolvedLeft);
-          const rightRows = fetchComponentRows(resolvedRight);
+          const componentSources = [normalizedLeft, normalizedRight].filter(
+            (component) => component.value
+          );
 
           const collectComponentEntries = (componentValue, transformed) => {
             if (!componentValue || typeof componentValue !== "string") {
@@ -1063,56 +1049,32 @@ function Dashboard({ db }) {
             });
           };
 
-          const components = [
-            ...collectComponentEntries(resolvedLeft, leftTransformed),
-            ...collectComponentEntries(resolvedRight, rightTransformed),
-          ];
+          const components = componentSources.flatMap(({ value, transformed }) =>
+            collectComponentEntries(value, transformed)
+          );
 
           const keywordData = resolveKeywordDataForValue(targetValue, baseRows);
-          const leftKeywordData = resolveKeywordDataForValue(
-            resolvedLeft,
-            leftRows
-          );
-          const rightKeywordData = resolveKeywordDataForValue(
-            resolvedRight,
-            rightRows
-          );
 
           return {
             entry: createEmptyDecompositionEntry({
               value: targetValue,
               keyword: keywordData?.keyword ?? null,
               bookOrder: keywordData?.bookOrder ?? null,
-              left: resolvedLeft,
-              right: resolvedRight,
-              leftKeyword: leftKeywordData?.keyword ?? null,
-              rightKeyword: rightKeywordData?.keyword ?? null,
-              leftTransformed,
-              rightTransformed,
               components,
             }),
             rows: baseRows,
-            leftRows,
-            rightRows,
           };
         };
 
+        const { entry: mainEntry } = buildDecompositionEntry(
+          resolvedQueryValue,
+          { rows: matchedRows }
+        );
         const {
-          entry: mainEntry,
-          leftRows: mainLeftRows,
-          rightRows: mainRightRows,
-        } = buildDecompositionEntry(resolvedQueryValue, { rows: matchedRows });
-        const {
-          left: mainLeft,
-          right: mainRight,
           valueKeyword: mainKeyword,
           valueBookOrder: mainBookOrder,
-          leftKeyword: mainLeftKeyword,
-          rightKeyword: mainRightKeyword,
+          components: mainComponents,
         } = mainEntry;
-
-        const leftDecompRows = mainLeftRows;
-        const rightDecompRows = mainRightRows;
 
         const getNeighbor = (stmt, order) => {
           if (typeof order !== "number") return null;
@@ -1139,13 +1101,8 @@ function Dashboard({ db }) {
 
         const enrichedRows = matchedRows.map((row) => ({
           ...row,
-          leftDecomp: mainLeft,
-          rightDecomp: mainRight,
-          leftDecompRows,
-          rightDecompRows,
           keyword: mainKeyword,
-          leftKeyword: mainLeftKeyword,
-          rightKeyword: mainRightKeyword,
+          decompositionComponents: mainComponents,
         }));
 
         const characters = Array.from(resolvedQueryValue).filter(
