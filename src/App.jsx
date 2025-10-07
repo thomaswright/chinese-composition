@@ -648,18 +648,22 @@ function DecompositionSection({ decompositions, query, onSelectValue }) {
         const componentList = Array.isArray(item.components)
           ? item.components.filter((component) => component?.value)
           : [];
-        const showDecomposition = componentList.length > 0;
+        const containsBaseComponent =
+          displayValue &&
+          componentList.some((component) => component.value === displayValue);
+        const showDecomposition =
+          componentList.length > 0 && !containsBaseComponent;
 
         if (!showDecomposition) {
           return (
             <div
               key={key}
-              className="text-gray-400 flex flex-row justify-start gap-2 items-center"
+              className="flex flex-row justify-start gap-2 items-center"
             >
               {displayValue ? (
                 <span className="text-lg leading-tight">{displayValue}</span>
               ) : null}
-              <span>no decomposition</span>
+              {item.valueKeyword && <span>{item.valueKeyword}</span>}
             </div>
           );
         }
@@ -684,7 +688,9 @@ function DecompositionSection({ decompositions, query, onSelectValue }) {
                     </span>
                     {component.keyword && <span>{component.keyword}</span>}
                   </button>
-                  {componentIndex < componentList.length - 1 ? <span>+</span> : null}
+                  {componentIndex < componentList.length - 1 ? (
+                    <span>+</span>
+                  ) : null}
                 </Fragment>
               );
             })}
@@ -1049,8 +1055,9 @@ function Dashboard({ db }) {
             });
           };
 
-          const components = componentSources.flatMap(({ value, transformed }) =>
-            collectComponentEntries(value, transformed)
+          const components = componentSources.flatMap(
+            ({ value, transformed }) =>
+              collectComponentEntries(value, transformed)
           );
 
           const keywordData = resolveKeywordDataForValue(targetValue, baseRows);
