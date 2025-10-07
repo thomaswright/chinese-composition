@@ -683,10 +683,7 @@ function Dashboard({ db }) {
   const [keywordScript, setKeywordScript] = useState("simplified");
   const [allKeywords, setAllKeywords] = useState([]);
   const [loadingKeywords, setLoadingKeywords] = useState(false);
-  const [history, setHistory] = useState(() => {
-    const initialValue = getQueryFromUrl();
-    return initialValue ? [initialValue] : [];
-  });
+  const [history, setHistory] = useState([]);
 
   const fetchHanziRows = (column, value) => {
     if (!db || !value) return [];
@@ -714,18 +711,18 @@ function Dashboard({ db }) {
   const runQuery = (value) => {
     if (!db) return;
 
+    const trimmedValue = (value ?? "").trim();
+
     try {
-      if (!value) {
+      if (!trimmedValue) {
         setResults([]);
         setDecompositions(createEmptyDecompositionList());
         setBookOrderNav(createEmptyBookOrderNav());
         return;
       }
 
-      setHistory((prevHistory) => pushHistory(prevHistory, value));
-
-      const traditionRows = fetchHanziRows("traditional", value);
-      const simplifiedRows = fetchHanziRows("simplified", value);
+      const traditionRows = fetchHanziRows("traditional", trimmedValue);
+      const simplifiedRows = fetchHanziRows("simplified", trimmedValue);
 
       const matchedRows = uniqueById(
         [...traditionRows, ...simplifiedRows],
@@ -738,6 +735,8 @@ function Dashboard({ db }) {
         setBookOrderNav(createEmptyBookOrderNav());
         return;
       }
+
+      setHistory((prevHistory) => pushHistory(prevHistory, trimmedValue));
 
       const decompositionStmt = db.prepare(
         "SELECT left_component, right_component FROM hanzi_decomposition WHERE component = ?"
@@ -880,7 +879,7 @@ function Dashboard({ db }) {
           entry: mainEntry,
           leftRows: mainLeftRows,
           rightRows: mainRightRows,
-        } = buildDecompositionEntry(value, { rows: matchedRows });
+        } = buildDecompositionEntry(trimmedValue, { rows: matchedRows });
         const {
           left: mainLeft,
           right: mainRight,
@@ -927,7 +926,7 @@ function Dashboard({ db }) {
           rightKeyword: mainRightKeyword,
         }));
 
-        const characters = Array.from(value ?? "").filter(
+        const characters = Array.from(trimmedValue).filter(
           (char) => char.trim().length > 0
         );
         const decompositionEntries =
@@ -941,8 +940,8 @@ function Dashboard({ db }) {
               row.simplified === lookupValue || row.traditional === lookupValue
           );
 
-        const currentRow = findRowForValue(value);
-        const currentSimplified = currentRow?.simplified ?? value ?? null;
+        const currentRow = findRowForValue(trimmedValue);
+        const currentSimplified = currentRow?.simplified ?? trimmedValue ?? null;
         const currentTraditional = currentRow?.traditional ?? null;
 
         setDecompositions(
@@ -1011,7 +1010,6 @@ function Dashboard({ db }) {
     const handlePopState = () => {
       const nextValue = getQueryFromUrl();
       setQuery(nextValue);
-      setHistory((prevHistory) => pushHistory(prevHistory, nextValue ?? ""));
       setView(getViewFromUrl());
     };
 
@@ -1027,10 +1025,6 @@ function Dashboard({ db }) {
 
   const updateQuery = (nextValue, { replace = false } = {}) => {
     setQuery(nextValue);
-
-    if (!replace) {
-      setHistory((prevHistory) => pushHistory(prevHistory, nextValue ?? ""));
-    }
 
     if (typeof window === "undefined") return;
 
