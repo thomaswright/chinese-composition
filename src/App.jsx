@@ -10,6 +10,7 @@ const QUERY_PARAM = "value";
 const VIEW_PARAM = "view";
 const VIEW_KEYWORDS = "keywords";
 const DEFAULT_VIEW = "definition";
+const QUERY_DEBOUNCE_MS = 250;
 
 function normalizeView(value) {
   return value === VIEW_KEYWORDS ? VIEW_KEYWORDS : DEFAULT_VIEW;
@@ -674,6 +675,7 @@ function DecompositionSection({ decompositions, query, onSelectValue }) {
 
 function Dashboard({ db }) {
   const [query, setQuery] = useState(() => getQueryFromUrl()); // input value
+  const [debouncedQuery, setDebouncedQuery] = useState(() => getQueryFromUrl());
   const [results, setResults] = useState([]); // query results
   const [decompositions, setDecompositions] = useState(
     createEmptyDecompositionList
@@ -713,11 +715,36 @@ function Dashboard({ db }) {
 
     const rows = [];
     const stmt = db.prepare(
-      "SELECT simplified, keyword, book_order, traditional FROM hanzi_keywords WHERE keyword = ?"
+      "SELECT simplified, keyword, book_order, traditional FROM hanzi_keywords WHERE keyword LIKE ?"
     );
 
     try {
-      stmt.bind([keywordValue]);
+      stmt.bind([`%${keywordValue}%`]);
+
+      while (stmt.step()) {
+        rows.push(stmt.getAsObject());
+      }
+    } finally {
+      stmt.free();
+    }
+
+    return rows;
+  };
+
+  const fetchHanziRowsByPartialMatch = (column, value, limit = 10) => {
+    if (!db || !value) return [];
+
+    if (column !== "pinyin" && column !== "english") {
+      throw new Error(`Unsupported partial match column: ${column}`);
+    }
+
+    const rows = [];
+    const stmt = db.prepare(
+      `SELECT * FROM hanzi WHERE ${column} LIKE ? LIMIT ?`
+    );
+
+    try {
+      stmt.bind([`%${value}%`, limit]);
 
       while (stmt.step()) {
         rows.push(stmt.getAsObject());
@@ -769,6 +796,30 @@ function Dashboard({ db }) {
           resolvedQueryValue =
             simplifiedCandidates.find((candidate) => candidate) ??
             trimmedValue;
+        }
+      }
+
+      if (!matchedRows.length) {
+        const pinyinMatches = uniqueById(
+          fetchHanziRowsByPartialMatch("pinyin", trimmedValue, 10),
+          "id"
+        );
+
+        if (pinyinMatches.length) {
+          matchedRows = pinyinMatches;
+          resolvedQueryValue = pinyinMatches[0]?.simplified ?? trimmedValue;
+        }
+      }
+
+      if (!matchedRows.length) {
+        const englishMatches = uniqueById(
+          fetchHanziRowsByPartialMatch("english", trimmedValue, 10),
+          "id"
+        );
+
+        if (englishMatches.length) {
+          matchedRows = englishMatches;
+          resolvedQueryValue = englishMatches[0]?.simplified ?? trimmedValue;
         }
       }
 
@@ -1060,8 +1111,16 @@ function Dashboard({ db }) {
   };
 
   useEffect(() => {
-    runQuery(query);
-  }, [db, query]);
+    const handle = setTimeout(() => {
+      setDebouncedQuery(query);
+    }, QUERY_DEBOUNCE_MS);
+
+    return () => clearTimeout(handle);
+  }, [query]);
+
+  useEffect(() => {
+    runQuery(debouncedQuery);
+  }, [db, debouncedQuery]);
 
   useEffect(() => {
     const handlePopState = () => {
@@ -1080,8 +1139,15 @@ function Dashboard({ db }) {
     loadAllKeywords();
   }, [db, allKeywords.length]);
 
-  const updateQuery = (nextValue, { replace = false } = {}) => {
+  const updateQuery = (
+    nextValue,
+    { replace = false, immediate = false } = {}
+  ) => {
     setQuery(nextValue);
+
+    if (immediate) {
+      setDebouncedQuery(nextValue);
+    }
 
     if (typeof window === "undefined") return;
 
@@ -1154,7 +1220,7 @@ function Dashboard({ db }) {
   const handleSelectValue = (nextValue) => {
     if (!nextValue) return;
 
-    updateQuery(nextValue);
+    updateQuery(nextValue, { immediate: true });
 
     ensureDefinitionView({ replace: true }, nextValue);
   };
@@ -1169,7 +1235,7 @@ function Dashboard({ db }) {
 
   const handleQuerySubmit = (value) => {
     const trimmed = (value ?? "").trim();
-    updateQuery(trimmed);
+    updateQuery(trimmed, { immediate: true });
 
     if (trimmed) {
       ensureDefinitionView({}, trimmed);
