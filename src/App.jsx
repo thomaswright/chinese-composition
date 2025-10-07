@@ -580,17 +580,20 @@ function HistoryList({ history, onSelect, isVisible }) {
     >
       <div>History</div>
       <div className="flex flex-wrap items-center gap-3">
-        {history.toReversed().map((item) => (
-          <div key={item} className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => onSelect(item)}
-              className=" px-2 py-1 rounded-md transition-colors hover:bg-gray-100"
-            >
-              {item}
-            </button>
-          </div>
-        ))}
+        {history
+          .slice()
+          .reverse()
+          .map((item) => (
+            <div key={item} className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => onSelect(item)}
+                className=" px-2 py-1 rounded-md transition-colors hover:bg-gray-100"
+              >
+                {item}
+              </button>
+            </div>
+          ))}
       </div>
     </nav>
   );
@@ -672,7 +675,6 @@ function DecompositionSection({ decompositions, query, onSelectValue }) {
 function Dashboard({ db }) {
   const [query, setQuery] = useState(() => getQueryFromUrl()); // input value
   const [results, setResults] = useState([]); // query results
-  const [error, setError] = useState(null);
   const [decompositions, setDecompositions] = useState(
     createEmptyDecompositionList
   );
@@ -1183,20 +1185,54 @@ function App() {
   const [error, setError] = useState(null);
 
   useEffect(() => {
+    let isMounted = true;
+    let databaseInstance = null;
+
     async function connectDatabase() {
       try {
         const SQL = await initSqlJs({ locateFile: () => wasm });
         const response = await fetch("/chinese.db");
-        const buf = await response.arrayBuffer();
-        const database = new SQL.Database(new Uint8Array(buf));
 
-        setDb(database);
+        if (!response.ok) {
+          throw new Error(
+            `Failed to fetch database: ${response.status} ${response.statusText}`
+          );
+        }
+
+        const buf = await response.arrayBuffer();
+        const nextDatabase = new SQL.Database(new Uint8Array(buf));
+
+        if (!isMounted) {
+          nextDatabase.close();
+          return;
+        }
+
+        databaseInstance = nextDatabase;
+        setDb(nextDatabase);
+        setError(null);
       } catch (err) {
-        setError(err);
+        if (databaseInstance) {
+          databaseInstance.close();
+          databaseInstance = null;
+        }
+
+        if (isMounted) {
+          setDb(null);
+          setError(err instanceof Error ? err : new Error(String(err)));
+        }
       }
     }
 
     connectDatabase();
+
+    return () => {
+      isMounted = false;
+
+      if (databaseInstance) {
+        databaseInstance.close();
+        databaseInstance = null;
+      }
+    };
   }, []);
 
   if (error) return <pre>{error.toString()}</pre>;
