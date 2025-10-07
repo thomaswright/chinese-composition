@@ -698,7 +698,7 @@ function Dashboard({ db }) {
         };
       };
 
-      const lookupKeyword = (lookupValue) => {
+      const lookupKeywordBySimplified = (lookupValue) => {
         if (!lookupValue) return null;
 
         keywordStmt.bind([lookupValue]);
@@ -729,35 +729,74 @@ function Dashboard({ db }) {
         );
       };
 
+      const resolveKeywordDataForValue = (lookupValue, candidateRows) => {
+        if (!lookupValue) return null;
+
+        const rowsToUse =
+          candidateRows !== undefined
+            ? candidateRows
+            : fetchComponentRows(lookupValue);
+        const simplifiedCandidate =
+          rowsToUse.find((row) => row.simplified)?.simplified ??
+          rowsToUse[0]?.simplified ??
+          null;
+
+        const simplifiedValue = simplifiedCandidate ?? lookupValue;
+
+        return lookupKeywordBySimplified(simplifiedValue);
+      };
+
       try {
-        const buildDecompositionEntry = (targetValue) => {
+        const buildDecompositionEntry = (targetValue, { rows = [] } = {}) => {
           if (!targetValue) {
-            return createEmptyDecompositionEntry({
-              value: targetValue ?? null,
-            });
+            return {
+              entry: createEmptyDecompositionEntry({
+                value: targetValue ?? null,
+              }),
+              rows: [],
+              leftRows: [],
+              rightRows: [],
+            };
           }
 
           const { left: entryLeft, right: entryRight } =
             lookupDecomposition(targetValue);
 
-          const keywordData = lookupKeyword(targetValue);
-          const keyword = keywordData?.keyword ?? null;
-          const bookOrder = keywordData?.bookOrder ?? null;
-          const leftKeyword = lookupKeyword(entryLeft)?.keyword ?? null;
-          const rightKeyword = lookupKeyword(entryRight)?.keyword ?? null;
+          const baseRows = rows.length > 0 ? rows : fetchComponentRows(targetValue);
+          const leftRows = fetchComponentRows(entryLeft);
+          const rightRows = fetchComponentRows(entryRight);
 
-          return createEmptyDecompositionEntry({
-            value: targetValue,
-            keyword,
-            bookOrder,
-            left: entryLeft,
-            right: entryRight,
-            leftKeyword,
-            rightKeyword,
-          });
+          const keywordData = resolveKeywordDataForValue(targetValue, baseRows);
+          const leftKeywordData = resolveKeywordDataForValue(
+            entryLeft,
+            leftRows
+          );
+          const rightKeywordData = resolveKeywordDataForValue(
+            entryRight,
+            rightRows
+          );
+
+          return {
+            entry: createEmptyDecompositionEntry({
+              value: targetValue,
+              keyword: keywordData?.keyword ?? null,
+              bookOrder: keywordData?.bookOrder ?? null,
+              left: entryLeft,
+              right: entryRight,
+              leftKeyword: leftKeywordData?.keyword ?? null,
+              rightKeyword: rightKeywordData?.keyword ?? null,
+            }),
+            rows: baseRows,
+            leftRows,
+            rightRows,
+          };
         };
 
-        const mainEntry = buildDecompositionEntry(value);
+        const {
+          entry: mainEntry,
+          leftRows: mainLeftRows,
+          rightRows: mainRightRows,
+        } = buildDecompositionEntry(value, { rows: matchedRows });
         const {
           left: mainLeft,
           right: mainRight,
@@ -767,8 +806,8 @@ function Dashboard({ db }) {
           rightKeyword: mainRightKeyword,
         } = mainEntry;
 
-        const leftDecompRows = fetchComponentRows(mainLeft);
-        const rightDecompRows = fetchComponentRows(mainRight);
+        const leftDecompRows = mainLeftRows;
+        const rightDecompRows = mainRightRows;
 
         const getNeighbor = (stmt, order) => {
           if (typeof order !== "number") return null;
@@ -806,9 +845,10 @@ function Dashboard({ db }) {
         const characters = Array.from(value ?? "").filter(
           (char) => char.trim().length > 0
         );
-        const decompositionEntries = characters.map((char) =>
-          char === value ? mainEntry : buildDecompositionEntry(char)
-        );
+        const decompositionEntries =
+          characters.length === 1
+            ? [mainEntry]
+            : characters.map((char) => buildDecompositionEntry(char).entry);
 
         setDecompositions(
           decompositionEntries.length
