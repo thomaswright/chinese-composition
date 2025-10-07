@@ -348,9 +348,7 @@ function KeywordList({
                     aria-current={isActive ? "true" : undefined}
                   >
                     <div className="flex items-center gap-3">
-                      <span className="text-lg font-semibold">
-                        {item.simplified}
-                      </span>
+                      <span className="text-lg">{item.simplified}</span>
                       {item.keyword && (
                         <span className="text-sm text-gray-600">
                           {item.keyword}
@@ -382,7 +380,7 @@ function ViewTabs({ view, onSelect }) {
     }`;
 
   return (
-    <div role="tablist" aria-label="View selection" className="mt-3 flex gap-2">
+    <div role="tablist" aria-label="View selection" className="flex gap-2 py-2">
       <button
         type="button"
         role="tab"
@@ -446,20 +444,20 @@ function DefinitionView({
     (decomposition.left || decomposition.right) && decomposition.right !== "*";
 
   return (
-    <div>
+    <div className="mt-2">
       {showDecomposition ? (
-        <div className="mt-2 px-3  py-2 text-lg flex flex-row justify-start gap-1 items-center">
+        <div className="px-5 py-3 flex flex-row justify-start gap-3 items-center">
           {decomposition.left && (
             <button
               type="button"
               onClick={() => onSelectValue(decomposition.left)}
-              className=" text-left text-blue-600 hover:underline flex items-center gap-1 flex-none w-fit"
+              className=" text-left  hover:underline flex flex-col items-center flex-none w-fit"
             >
-              <span>{decomposition.left}</span>
+              <span className="text-lg leading-tight">
+                {decomposition.left}
+              </span>
               {decomposition.leftKeyword && (
-                <span className="text-gray-600">
-                  {decomposition.leftKeyword}
-                </span>
+                <span className="">{decomposition.leftKeyword}</span>
               )}
             </button>
           )}
@@ -468,13 +466,13 @@ function DefinitionView({
             <button
               type="button"
               onClick={() => onSelectValue(decomposition.right)}
-              className="text-left text-blue-600 hover:underline flex items-center gap-1 flex-none w-fit"
+              className="text-left  hover:underline flex flex-col items-center flex-none w-fit"
             >
-              <span>{decomposition.right}</span>
+              <span className="text-lg leading-tight">
+                {decomposition.right}
+              </span>
               {decomposition.rightKeyword && (
-                <span className="text-gray-600">
-                  {decomposition.rightKeyword}
-                </span>
+                <span className="">{decomposition.rightKeyword}</span>
               )}
             </button>
           )}
@@ -483,24 +481,22 @@ function DefinitionView({
             <button
               type="button"
               onClick={() => onSelectValue(query)}
-              className="text-left text-blue-600 hover:underline flex items-center gap-1 flex-none w-fit"
+              className="text-left  hover:underline flex flex-col items-center flex-none w-fit"
             >
-              <span>{query}</span>
+              <span className="text-lg leading-tight ">{query}</span>
               {decomposition.valueKeyword && (
-                <span className="text-gray-600">
-                  {decomposition.valueKeyword}
-                </span>
+                <span className="">{decomposition.valueKeyword}</span>
               )}
             </button>
           )}
         </div>
       ) : (
-        <div className="mt-2 px-3  py-2 text-gray-400 flex flex-row justify-start gap-1 items-center">
-          (no decomposition)
+        <div className="px-3 py-3 text-gray-400 flex flex-row justify-start gap-1 items-center">
+          no decomposition
         </div>
       )}
 
-      <div className="space-y-4 mt-3 divide-y border-t max-w-lg">
+      <div className="divide-y max-w-lg">
         {results.map((row) => {
           const englishMeanings = row.english
             ? row.english
@@ -510,8 +506,8 @@ function DefinitionView({
             : [];
 
           return (
-            <div key={row.id ?? row.simplified} className="  p-3 space-y-1">
-              <div className="font-semibold text-lg">
+            <div key={row.id ?? row.simplified} className=" px-3 py-3">
+              <div className="text-lg">
                 {row.simplified}{" "}
                 {row.traditional !== row.simplified
                   ? `(${row.traditional})`
@@ -542,10 +538,7 @@ function HistoryList({ history, onSelect, isVisible }) {
   }
 
   return (
-    <nav
-      aria-label="Query history"
-      className="mt-3 px-3 text-lg text-gray-600 border-t py-3 max-w-lg"
-    >
+    <nav aria-label="Query history" className="mt-6 px-3 max-w-lg">
       <div>History</div>
       <div className="flex flex-wrap items-center gap-3">
         {history.map((item) => (
@@ -920,11 +913,8 @@ function Dashboard({ db }) {
   const isDefinitionView = !isKeywordView;
 
   return (
-    <div className="p-3">
-      <div className="pb-2 px-3">
-        <h1 className="font-black text-gray-500">Character Composition</h1>
-        <ViewTabs view={view} onSelect={handleSelectViewTab} />
-      </div>
+    <div className="p-3 flex flex-col">
+      <ViewTabs view={view} onSelect={handleSelectViewTab} />
 
       <SearchBar
         query={query ?? ""}
@@ -933,8 +923,6 @@ function Dashboard({ db }) {
         bookOrderNav={bookOrderNav}
         onSelectValue={handleSelectValue}
       />
-
-      {error && <div style={{ color: "red" }}>{error}</div>}
 
       <KeywordList
         keywords={allKeywords}
