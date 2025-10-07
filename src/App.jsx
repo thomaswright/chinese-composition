@@ -345,7 +345,7 @@ function KeywordList({
   const itemsToRender = keywords.slice(startIndex, endIndex);
 
   return (
-    <div className="mt-3 border rounded  overflow-hidden">
+    <div className="mt-3 border rounded border-gray-400 overflow-hidden">
       <div
         ref={containerRef}
         className="max-h-80 overflow-y-auto"
@@ -356,7 +356,7 @@ function KeywordList({
             className="absolute inset-x-0"
             style={{ transform: `translateY(${offsetY}px)` }}
           >
-            <div className="divide-y">
+            <div className="divide-y divide-gray-300">
               {itemsToRender.map((item, index) => {
                 const actualIndex = startIndex + index;
                 const displayCharacter =
