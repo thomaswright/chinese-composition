@@ -322,7 +322,7 @@ function KeywordList({
 
   if (loading) {
     return (
-      <div className="mt-3 px-3 py-2 text-gray-600 text-sm border rounded max-w-lg">
+      <div className="mt-3 px-3 py-2 text-gray-600 text-sm border rounded ">
         Loading keywords…
       </div>
     );
@@ -330,7 +330,7 @@ function KeywordList({
 
   if (!keywords.length) {
     return (
-      <div className="mt-3 px-3 py-2 text-gray-600 text-sm border rounded max-w-lg">
+      <div className="mt-3 px-3 py-2 text-gray-600 text-sm border rounded ">
         No keywords found.
       </div>
     );
@@ -345,7 +345,7 @@ function KeywordList({
   const itemsToRender = keywords.slice(startIndex, endIndex);
 
   return (
-    <div className="mt-3 border rounded max-w-lg overflow-hidden">
+    <div className="mt-3 border rounded  overflow-hidden">
       <div
         ref={containerRef}
         className="max-h-80 overflow-y-auto"
@@ -433,7 +433,7 @@ function ViewTabs({ view, onSelect, keywordScript, onSelectKeywordScript }) {
   };
 
   return (
-    <div className="flex items-center gap-3 py-2 justify-between max-w-lg">
+    <div className="flex items-center gap-3 py-2 justify-between ">
       <div role="tablist" aria-label="View selection" className="flex gap-2">
         <button
           type="button"
@@ -491,7 +491,7 @@ function SearchBar({
   keywordScript,
 }) {
   return (
-    <div className="mt-1 flex items-center gap-3 max-w-lg">
+    <div className="mt-1 flex items-center gap-3 ">
       <input
         type="text"
         placeholder="Enter character…"
@@ -532,7 +532,7 @@ function DefinitionView({
         onSelectValue={onSelectValue}
       />
 
-      <div className="divide-y max-w-lg divide-gray-300 border-t border-gray-300">
+      <div className="divide-y  divide-gray-300 border-t border-gray-300">
         {results.map((row) => {
           const englishMeanings = row.english
             ? row.english
@@ -576,7 +576,7 @@ function HistoryList({ history, onSelect, isVisible }) {
   return (
     <nav
       aria-label="Query history"
-      className="mt-3 pt-3 px-3 max-w-lg border-t border-gray-300"
+      className="mt-3 pt-3 px-3  border-t border-gray-300"
     >
       <div>History</div>
       <div className="flex flex-wrap items-center gap-3">
@@ -1133,7 +1133,7 @@ function Dashboard({ db }) {
   const isDefinitionView = !isKeywordView;
 
   return (
-    <div className="p-3 flex flex-col">
+    <div className="p-3 flex flex-col max-w-lg">
       <ViewTabs
         view={view}
         onSelect={handleSelectViewTab}
