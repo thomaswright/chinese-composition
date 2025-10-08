@@ -6,11 +6,7 @@ export default function DecompositionSection({
   onSelectValue,
 }) {
   if (!decompositions.length) {
-    return (
-      <div className="px-3 py-3 text-gray-400 flex flex-row justify-start gap-1 items-center">
-        no decomposition
-      </div>
-    );
+    return null;
   }
 
   return (

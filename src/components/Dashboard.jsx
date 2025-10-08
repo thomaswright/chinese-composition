@@ -54,7 +54,7 @@ export default function Dashboard({ db, onError }) {
 
     const trimmedValue = (debouncedQuery ?? "").trim();
 
-    if (!trimmedValue || shouldSkipQueryValue(trimmedValue)) {
+    if (!trimmedValue) {
       setResults([]);
       setDecompositions(createEmptyDecompositionList());
       setBookOrderNav(createEmptyBookOrderNav());
@@ -169,7 +169,10 @@ export default function Dashboard({ db, onError }) {
     }
   };
 
-  const updateQuery = (nextValue, { replace = false, immediate = false } = {}) => {
+  const updateQuery = (
+    nextValue,
+    { replace = false, immediate = false } = {}
+  ) => {
     setQuery(nextValue);
 
     if (immediate) {
@@ -440,7 +443,7 @@ function fetchHanziRowsByPartialMatch(db, column, value, limit = 10) {
 }
 
 function fetchComponentRowsForValue(db, lookupValue) {
-  if (!db || !lookupValue) return [];
+  if (!lookupValue) return [];
 
   return uniqueById(
     [
@@ -449,10 +452,6 @@ function fetchComponentRowsForValue(db, lookupValue) {
     ],
     "id"
   );
-}
-
-function shouldSkipQueryValue(value) {
-  return /^[a-z]$/i.test(value);
 }
 
 function resolveQueryMatches(db, trimmedValue) {
@@ -478,7 +477,7 @@ function resolveQueryMatches(db, trimmedValue) {
   const additionalResult = resolveFromKeywordRows(
     db,
     fetchKeywordRowsByAdditionalForm(db, trimmedValue),
-    trimmedValue,
+    trimmedValue
   );
   if (additionalResult) return additionalResult;
 
@@ -794,8 +793,7 @@ function buildDecompositionResult({
 
   const findRowForValue = (lookupValue) =>
     matchedRows.find(
-      (row) =>
-        row.simplified === lookupValue || row.traditional === lookupValue
+      (row) => row.simplified === lookupValue || row.traditional === lookupValue
     );
 
   const currentRow = findRowForValue(resolvedQueryValue);
@@ -852,8 +850,7 @@ function normalizeDecompositionComponent(component) {
 function ensureKeywordRows(rows, value, fetchComponentRows) {
   const normalizedRows = rows.filter(Boolean);
   const hasKeyword = normalizedRows.some((row) => {
-    const keyword =
-      typeof row?.keyword === "string" ? row.keyword.trim() : "";
+    const keyword = typeof row?.keyword === "string" ? row.keyword.trim() : "";
     return keyword.length > 0;
   });
 
