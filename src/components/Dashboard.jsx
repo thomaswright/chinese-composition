@@ -54,7 +54,7 @@ export default function Dashboard({ db, onError }) {
 
     const trimmedValue = (debouncedQuery ?? "").trim();
 
-    if (!trimmedValue) {
+    if (!trimmedValue || shouldSkipQueryValue(trimmedValue)) {
       setResults([]);
       setDecompositions(createEmptyDecompositionList());
       setBookOrderNav(createEmptyBookOrderNav());
@@ -449,6 +449,10 @@ function fetchComponentRowsForValue(db, lookupValue) {
     ],
     "id"
   );
+}
+
+function shouldSkipQueryValue(value) {
+  return /^[a-z]$/i.test(value);
 }
 
 function resolveQueryMatches(db, trimmedValue) {
