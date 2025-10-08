@@ -1553,7 +1553,7 @@ function Dashboard({ db }) {
 
   return (
     <div className="p-3 flex flex-col max-w-lg">
-      <div className="font-black">Hanzi Composition</div>
+      <div className="font-black">Chinese Composition</div>
       <ViewTabs
         view={view}
         onSelect={handleSelectViewTab}
