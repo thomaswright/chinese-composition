@@ -771,6 +771,52 @@ function Dashboard({ db }) {
     return rows;
   };
 
+  const fetchKeywordRowsByAdditionalForm = (formValue) => {
+    if (!db || !formValue) return [];
+
+    const rows = [];
+    const stmt = db.prepare(
+      `SELECT simplified, traditional, additional_forms
+       FROM hanzi_keywords
+       WHERE additional_forms IS NOT NULL
+         AND additional_forms LIKE ?`
+    );
+
+    try {
+      stmt.bind([`%"${formValue}"%`]);
+
+      while (stmt.step()) {
+        const row = stmt.getAsObject();
+        const rawAdditionalForms = row.additional_forms;
+
+        if (!rawAdditionalForms) continue;
+
+        let parsedAdditionalForms = [];
+        try {
+          parsedAdditionalForms = JSON.parse(rawAdditionalForms);
+        } catch {
+          parsedAdditionalForms = [];
+        }
+
+        if (Array.isArray(parsedAdditionalForms)) {
+          const hasMatch = parsedAdditionalForms.some(
+            (entry) => entry === formValue
+          );
+          if (hasMatch) {
+            rows.push({
+              simplified: row.simplified,
+              traditional: row.traditional,
+            });
+          }
+        }
+      }
+    } finally {
+      stmt.free();
+    }
+
+    return rows;
+  };
+
   const fetchHanziRowsByPartialMatch = (column, value, limit = 10) => {
     if (!db || !value) return [];
 
@@ -808,6 +854,38 @@ function Dashboard({ db }) {
     const traditionRows = fetchHanziRows("traditional", trimmedValue);
     const simplifiedRows = fetchHanziRows("simplified", trimmedValue);
     let matchedRows = uniqueById([...traditionRows, ...simplifiedRows], "id");
+
+    if (!matchedRows.length) {
+      const additionalFormMatches =
+        fetchKeywordRowsByAdditionalForm(trimmedValue);
+
+      if (additionalFormMatches.length) {
+        const candidateValueSet = new Set();
+        additionalFormMatches.forEach(({ simplified, traditional }) => {
+          if (simplified) candidateValueSet.add(simplified);
+          if (traditional) candidateValueSet.add(traditional);
+        });
+
+        if (!candidateValueSet.has(trimmedValue)) {
+          candidateValueSet.add(trimmedValue);
+        }
+
+        const candidateValues = Array.from(candidateValueSet);
+        const additionalFormRows = uniqueById(
+          candidateValues.flatMap((candidate) => [
+            ...fetchHanziRows("simplified", candidate),
+            ...fetchHanziRows("traditional", candidate),
+          ]),
+          "id"
+        );
+
+        if (additionalFormRows.length) {
+          matchedRows = additionalFormRows;
+          const canonicalMatch = candidateValues[0] ?? trimmedValue;
+          resolvedQueryValue = canonicalMatch;
+        }
+      }
+    }
 
     if (!matchedRows.length) {
       const keywordMatches = fetchKeywordRowsByKeyword(trimmedValue);
