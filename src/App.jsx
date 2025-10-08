@@ -893,70 +893,92 @@ function Dashboard({ db }) {
     };
   };
 
-  const buildDecompositionResult = ({
-    matchedRows,
-    resolvedQueryValue,
-    statements,
+  const fetchComponentRowsForValue = (lookupValue) => {
+    if (!lookupValue) return [];
+
+    return uniqueById(
+      [
+        ...fetchHanziRows("traditional", lookupValue),
+        ...fetchHanziRows("simplified", lookupValue),
+      ],
+      "id"
+    );
+  };
+
+  const normalizeDecompositionComponent = (component) => {
+    if (component === null || component === undefined) {
+      return { value: null, transformed: false };
+    }
+
+    if (typeof component !== "string") {
+      return { value: component ?? null, transformed: false };
+    }
+
+    const trimmedComponent = component.trim();
+
+    if (component === "*") {
+      return { value: null, transformed: false };
+    }
+
+    if (component.includes("*")) {
+      const trimmedValue = component.replace(/\*/g, "").trim();
+
+      return {
+        value: trimmedValue || null,
+        transformed: true,
+      };
+    }
+
+    if (trimmedComponent.length === 0) {
+      return { value: null, transformed: false };
+    }
+
+    return { value: trimmedComponent, transformed: false };
+  };
+
+  const createLookupDecomposition = (stmt) => (lookupValue) => {
+    if (!lookupValue) return { left: null, right: null };
+
+    stmt.bind([lookupValue]);
+
+    if (!stmt.step()) {
+      stmt.reset();
+      return { left: null, right: null };
+    }
+
+    const { left_component, right_component } = stmt.getAsObject();
+    stmt.reset();
+
+    return {
+      left: left_component || null,
+      right: right_component || null,
+    };
+  };
+
+  const createLookupKeywordBySimplified = (stmt) => (lookupValue) => {
+    if (!lookupValue) return null;
+
+    stmt.bind([lookupValue]);
+
+    if (!stmt.step()) {
+      stmt.reset();
+      return null;
+    }
+
+    const { keyword, book_order } = stmt.getAsObject();
+    stmt.reset();
+
+    return {
+      keyword: keyword || null,
+      bookOrder: typeof book_order === "number" ? book_order : null,
+    };
+  };
+
+  const createResolveKeywordDataForValue = ({
+    lookupKeywordBySimplified,
+    fetchComponentRows,
   }) => {
-    const {
-      decompositionStmt,
-      keywordStmt,
-      previousBookOrderStmt,
-      nextBookOrderStmt,
-    } = statements;
-
-    const lookupDecomposition = (lookupValue) => {
-      if (!lookupValue) return { left: null, right: null };
-
-      decompositionStmt.bind([lookupValue]);
-
-      if (!decompositionStmt.step()) {
-        decompositionStmt.reset();
-        return { left: null, right: null };
-      }
-
-      const { left_component, right_component } =
-        decompositionStmt.getAsObject();
-      decompositionStmt.reset();
-
-      return {
-        left: left_component || null,
-        right: right_component || null,
-      };
-    };
-
-    const lookupKeywordBySimplified = (lookupValue) => {
-      if (!lookupValue) return null;
-
-      keywordStmt.bind([lookupValue]);
-
-      if (!keywordStmt.step()) {
-        keywordStmt.reset();
-        return null;
-      }
-
-      const { keyword, book_order } = keywordStmt.getAsObject();
-      keywordStmt.reset();
-
-      return {
-        keyword: keyword || null,
-        bookOrder: typeof book_order === "number" ? book_order : null,
-      };
-    };
-
-    const fetchComponentRows = (lookupValue) => {
-      if (!lookupValue) return [];
-
-      return uniqueById(
-        [
-          ...fetchHanziRows("traditional", lookupValue),
-          ...fetchHanziRows("simplified", lookupValue),
-        ],
-        "id"
-      );
-    };
-
-    const resolveKeywordDataForValue = (lookupValue, candidateRows) => {
+    return (lookupValue, candidateRows) => {
       const normalizedLookup =
         typeof lookupValue === "string"
           ? lookupValue.replace(/\*/g, "").trim()
@@ -981,8 +1003,38 @@ function Dashboard({ db }) {
 
       return lookupKeywordBySimplified(simplifiedValue);
     };
+  };
 
-    const buildDecompositionEntry = (targetValue, { rows = [] } = {}) => {
+  const createDecompositionEntryBuilder = ({
+    lookupDecomposition,
+    fetchComponentRows,
+    resolveKeywordDataForValue,
+  }) => {
+    const collectComponentEntries = (componentValue, transformed) => {
+      if (!componentValue || typeof componentValue !== "string") {
+        return [];
+      }
+
+      const characters = Array.from(componentValue).filter(
+        (char) => char.trim().length > 0
+      );
+
+      return characters.map((char) => {
+        const charKeywordData = resolveKeywordDataForValue(char);
+
+        return {
+          value: char,
+          keyword: charKeywordData?.keyword ?? null,
+          bookOrder:
+            typeof charKeywordData?.bookOrder === "number"
+              ? charKeywordData.bookOrder
+              : null,
+          transformed,
+        };
+      });
+    };
+
+    return (targetValue, { rows = [] } = {}) => {
       if (!targetValue) {
         return {
           entry: createEmptyDecompositionEntry({
@@ -1008,68 +1060,14 @@ function Dashboard({ db }) {
           resolvedLeft && resolvedLeft !== "*" ? resolvedLeft : null;
       }
 
-      const normalizeComponentValue = (component) => {
-        if (component === null || component === undefined) {
-          return { value: null, transformed: false };
-        }
+      const normalizedLeft = normalizeDecompositionComponent(resolvedLeft);
+      const normalizedRight = normalizeDecompositionComponent(resolvedRight);
 
-        if (typeof component !== "string") {
-          return { value: component ?? null, transformed: false };
-        }
-
-        const trimmedComponent = component.trim();
-
-        if (component === "*") {
-          return { value: null, transformed: false };
-        }
-
-        if (component.includes("*")) {
-          const trimmedValue = component.replace(/\*/g, "").trim();
-
-          return {
-            value: trimmedValue || null,
-            transformed: true,
-          };
-        }
-
-        if (trimmedComponent.length === 0) {
-          return { value: null, transformed: false };
-        }
-
-        return { value: trimmedComponent, transformed: false };
-      };
-
-      const normalizedLeft = normalizeComponentValue(resolvedLeft);
-      const normalizedRight = normalizeComponentValue(resolvedRight);
-
-      const baseRows = rows.length > 0 ? rows : fetchComponentRows(targetValue);
+      const baseRows =
+        rows.length > 0 ? rows : fetchComponentRows(targetValue);
       const componentSources = [normalizedLeft, normalizedRight].filter(
         (component) => component.value
       );
-
-      const collectComponentEntries = (componentValue, transformed) => {
-        if (!componentValue || typeof componentValue !== "string") {
-          return [];
-        }
-
-        const characters = Array.from(componentValue).filter(
-          (char) => char.trim().length > 0
-        );
-
-        return characters.map((char) => {
-          const charKeywordData = resolveKeywordDataForValue(char);
-
-          return {
-            value: char,
-            keyword: charKeywordData?.keyword ?? null,
-            bookOrder:
-              typeof charKeywordData?.bookOrder === "number"
-                ? charKeywordData.bookOrder
-                : null,
-            transformed,
-          };
-        });
-      };
 
       const components = componentSources.flatMap(({ value, transformed }) =>
         collectComponentEntries(value, transformed)
@@ -1087,6 +1085,64 @@ function Dashboard({ db }) {
         rows: baseRows,
       };
     };
+  };
+
+  const createNeighborGetter = (stmt) => (order) => {
+    if (typeof order !== "number") return null;
+
+    stmt.bind([order]);
+
+    if (!stmt.step()) {
+      stmt.reset();
+      return null;
+    }
+
+    const { simplified, book_order, traditional } = stmt.getAsObject();
+    stmt.reset();
+
+    return {
+      simplified: simplified || null,
+      traditional: traditional || null,
+      bookOrder: typeof book_order === "number" ? book_order : null,
+    };
+  };
+
+  const createDecompositionHelpers = ({
+    decompositionStmt,
+    keywordStmt,
+    previousBookOrderStmt,
+    nextBookOrderStmt,
+  }) => {
+    const lookupDecomposition = createLookupDecomposition(decompositionStmt);
+    const lookupKeywordBySimplified =
+      createLookupKeywordBySimplified(keywordStmt);
+    const fetchComponentRows = fetchComponentRowsForValue;
+    const resolveKeywordDataForValue = createResolveKeywordDataForValue({
+      lookupKeywordBySimplified,
+      fetchComponentRows,
+    });
+
+    return {
+      buildDecompositionEntry: createDecompositionEntryBuilder({
+        lookupDecomposition,
+        fetchComponentRows,
+        resolveKeywordDataForValue,
+      }),
+      getPreviousBook: createNeighborGetter(previousBookOrderStmt),
+      getNextBook: createNeighborGetter(nextBookOrderStmt),
+    };
+  };
+
+  const buildDecompositionResult = ({
+    matchedRows,
+    resolvedQueryValue,
+    statements,
+  }) => {
+    const {
+      buildDecompositionEntry,
+      getPreviousBook,
+      getNextBook,
+    } = createDecompositionHelpers(statements);
 
     const { entry: mainEntry } = buildDecompositionEntry(resolvedQueryValue, {
       rows: matchedRows,
@@ -1096,29 +1152,6 @@ function Dashboard({ db }) {
       valueBookOrder: mainBookOrder,
       components: mainComponents,
     } = mainEntry;
-
-    const getNeighbor = (stmt, order) => {
-      if (typeof order !== "number") return null;
-
-      stmt.bind([order]);
-
-      if (!stmt.step()) {
-        stmt.reset();
-        return null;
-      }
-
-      const { simplified, book_order, traditional } = stmt.getAsObject();
-      stmt.reset();
-
-      return {
-        simplified: simplified || null,
-        traditional: traditional || null,
-        bookOrder: typeof book_order === "number" ? book_order : null,
-      };
-    };
-
-    const previousBook = getNeighbor(previousBookOrderStmt, mainBookOrder);
-    const nextBook = getNeighbor(nextBookOrderStmt, mainBookOrder);
 
     const enrichedRows = matchedRows.map((row) => ({
       ...row,
@@ -1144,6 +1177,9 @@ function Dashboard({ db }) {
     const currentSimplified =
       currentRow?.simplified ?? resolvedQueryValue ?? null;
     const currentTraditional = currentRow?.traditional ?? null;
+
+    const previousBook = getPreviousBook(mainBookOrder);
+    const nextBook = getNextBook(mainBookOrder);
 
     const decompositions = decompositionEntries.length
       ? decompositionEntries
