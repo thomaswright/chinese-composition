@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import initSqlJs from "sql.js";
 import wasm from "sql.js/dist/sql-wasm.wasm?url";
+import logoUrl from "./assets/logo.svg";
 
 function uniqueById(arr, key) {
   return [...new Map(arr.map((obj) => [obj[key], obj])).values()];
@@ -1587,7 +1588,11 @@ function Dashboard({ db }) {
 
   return (
     <div className="p-3 flex flex-col max-w-lg">
-      <div className="font-black">Chinese Composition</div>
+      <div className="font-black flex items-center gap-1">
+        <img src={logoUrl} width={"20"} className="" />
+
+        <span>Chinese Composition</span>
+      </div>
       <ViewTabs
         view={view}
         onSelect={handleSelectViewTab}
