@@ -1606,7 +1606,8 @@ function App() {
     async function connectDatabase() {
       try {
         const SQL = await initSqlJs({ locateFile: () => wasm });
-        const response = await fetch("/chinese.db");
+        const databaseUrl = `${import.meta.env.BASE_URL}/chinese.db`;
+        const response = await fetch(databaseUrl);
 
         if (!response.ok) {
           throw new Error(
