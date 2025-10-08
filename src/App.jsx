@@ -796,6 +796,377 @@ function Dashboard({ db }) {
     return rows;
   };
 
+  const resetQueryState = () => {
+    setResults([]);
+    setDecompositions(createEmptyDecompositionList());
+    setBookOrderNav(createEmptyBookOrderNav());
+  };
+
+  const resolveMatchedRows = (trimmedValue) => {
+    let resolvedQueryValue = trimmedValue;
+
+    const traditionRows = fetchHanziRows("traditional", trimmedValue);
+    const simplifiedRows = fetchHanziRows("simplified", trimmedValue);
+    let matchedRows = uniqueById([...traditionRows, ...simplifiedRows], "id");
+
+    if (!matchedRows.length) {
+      const keywordMatches = fetchKeywordRowsByKeyword(trimmedValue);
+      const simplifiedCandidates = keywordMatches
+        .map((row) => row.simplified)
+        .filter(Boolean);
+      const keywordMatchedRows = uniqueById(
+        simplifiedCandidates.flatMap((candidate) =>
+          fetchHanziRows("simplified", candidate)
+        ),
+        "id"
+      );
+
+      if (keywordMatchedRows.length) {
+        matchedRows = keywordMatchedRows;
+        resolvedQueryValue =
+          simplifiedCandidates.find((candidate) => candidate) ?? trimmedValue;
+      }
+    }
+
+    if (!matchedRows.length) {
+      const pinyinMatches = uniqueById(
+        fetchHanziRowsByPartialMatch("pinyin", trimmedValue, 10),
+        "id"
+      );
+
+      if (pinyinMatches.length) {
+        matchedRows = pinyinMatches;
+        resolvedQueryValue = pinyinMatches[0]?.simplified ?? trimmedValue;
+      }
+    }
+
+    if (!matchedRows.length) {
+      const englishMatches = uniqueById(
+        fetchHanziRowsByPartialMatch("english", trimmedValue, 10),
+        "id"
+      );
+
+      if (englishMatches.length) {
+        matchedRows = englishMatches;
+        resolvedQueryValue = englishMatches[0]?.simplified ?? trimmedValue;
+      }
+    }
+
+    return { matchedRows, resolvedQueryValue };
+  };
+
+  const prepareDecompositionStatements = (database) => {
+    const decompositionStmt = database.prepare(
+      "SELECT left_component, right_component FROM hanzi_decomposition WHERE component = ?"
+    );
+    const keywordStmt = database.prepare(
+      "SELECT keyword, book_order FROM hanzi_keywords WHERE simplified = ?"
+    );
+    const previousBookOrderStmt = database.prepare(
+      `SELECT simplified, book_order, traditional
+       FROM hanzi_keywords
+       WHERE book_order < ?
+       ORDER BY book_order DESC
+       LIMIT 1`
+    );
+    const nextBookOrderStmt = database.prepare(
+      `SELECT simplified, book_order, traditional
+       FROM hanzi_keywords
+       WHERE book_order > ?
+       ORDER BY book_order ASC
+       LIMIT 1`
+    );
+
+    const freeAll = () => {
+      decompositionStmt.free();
+      keywordStmt.free();
+      previousBookOrderStmt.free();
+      nextBookOrderStmt.free();
+    };
+
+    return {
+      decompositionStmt,
+      keywordStmt,
+      previousBookOrderStmt,
+      nextBookOrderStmt,
+      freeAll,
+    };
+  };
+
+  const buildDecompositionResult = ({
+    matchedRows,
+    resolvedQueryValue,
+    statements,
+  }) => {
+    const {
+      decompositionStmt,
+      keywordStmt,
+      previousBookOrderStmt,
+      nextBookOrderStmt,
+    } = statements;
+
+    const lookupDecomposition = (lookupValue) => {
+      if (!lookupValue) return { left: null, right: null };
+
+      decompositionStmt.bind([lookupValue]);
+
+      if (!decompositionStmt.step()) {
+        decompositionStmt.reset();
+        return { left: null, right: null };
+      }
+
+      const { left_component, right_component } =
+        decompositionStmt.getAsObject();
+      decompositionStmt.reset();
+
+      return {
+        left: left_component || null,
+        right: right_component || null,
+      };
+    };
+
+    const lookupKeywordBySimplified = (lookupValue) => {
+      if (!lookupValue) return null;
+
+      keywordStmt.bind([lookupValue]);
+
+      if (!keywordStmt.step()) {
+        keywordStmt.reset();
+        return null;
+      }
+
+      const { keyword, book_order } = keywordStmt.getAsObject();
+      keywordStmt.reset();
+
+      return {
+        keyword: keyword || null,
+        bookOrder: typeof book_order === "number" ? book_order : null,
+      };
+    };
+
+    const fetchComponentRows = (lookupValue) => {
+      if (!lookupValue) return [];
+
+      return uniqueById(
+        [
+          ...fetchHanziRows("traditional", lookupValue),
+          ...fetchHanziRows("simplified", lookupValue),
+        ],
+        "id"
+      );
+    };
+
+    const resolveKeywordDataForValue = (lookupValue, candidateRows) => {
+      const normalizedLookup =
+        typeof lookupValue === "string"
+          ? lookupValue.replace(/\*/g, "").trim()
+          : lookupValue ?? null;
+      const valueToUse =
+        typeof normalizedLookup === "string" && normalizedLookup.length === 0
+          ? null
+          : normalizedLookup;
+
+      if (!valueToUse) return null;
+
+      const rowsToUse =
+        candidateRows !== undefined
+          ? candidateRows
+          : fetchComponentRows(valueToUse);
+      const simplifiedCandidate =
+        rowsToUse.find((row) => row.simplified)?.simplified ??
+        rowsToUse[0]?.simplified ??
+        null;
+
+      const simplifiedValue = simplifiedCandidate ?? valueToUse;
+
+      return lookupKeywordBySimplified(simplifiedValue);
+    };
+
+    const buildDecompositionEntry = (targetValue, { rows = [] } = {}) => {
+      if (!targetValue) {
+        return {
+          entry: createEmptyDecompositionEntry({
+            value: targetValue ?? null,
+          }),
+          rows: [],
+        };
+      }
+
+      const { left: entryLeft, right: entryRight } =
+        lookupDecomposition(targetValue);
+
+      let resolvedLeft = entryLeft;
+      let resolvedRight = entryRight;
+
+      if (resolvedLeft === "*") {
+        resolvedLeft =
+          resolvedRight && resolvedRight !== "*" ? resolvedRight : null;
+      }
+
+      if (resolvedRight === "*") {
+        resolvedRight =
+          resolvedLeft && resolvedLeft !== "*" ? resolvedLeft : null;
+      }
+
+      const normalizeComponentValue = (component) => {
+        if (component === null || component === undefined) {
+          return { value: null, transformed: false };
+        }
+
+        if (typeof component !== "string") {
+          return { value: component ?? null, transformed: false };
+        }
+
+        const trimmedComponent = component.trim();
+
+        if (component === "*") {
+          return { value: null, transformed: false };
+        }
+
+        if (component.includes("*")) {
+          const trimmedValue = component.replace(/\*/g, "").trim();
+
+          return {
+            value: trimmedValue || null,
+            transformed: true,
+          };
+        }
+
+        if (trimmedComponent.length === 0) {
+          return { value: null, transformed: false };
+        }
+
+        return { value: trimmedComponent, transformed: false };
+      };
+
+      const normalizedLeft = normalizeComponentValue(resolvedLeft);
+      const normalizedRight = normalizeComponentValue(resolvedRight);
+
+      const baseRows = rows.length > 0 ? rows : fetchComponentRows(targetValue);
+      const componentSources = [normalizedLeft, normalizedRight].filter(
+        (component) => component.value
+      );
+
+      const collectComponentEntries = (componentValue, transformed) => {
+        if (!componentValue || typeof componentValue !== "string") {
+          return [];
+        }
+
+        const characters = Array.from(componentValue).filter(
+          (char) => char.trim().length > 0
+        );
+
+        return characters.map((char) => {
+          const charKeywordData = resolveKeywordDataForValue(char);
+
+          return {
+            value: char,
+            keyword: charKeywordData?.keyword ?? null,
+            bookOrder:
+              typeof charKeywordData?.bookOrder === "number"
+                ? charKeywordData.bookOrder
+                : null,
+            transformed,
+          };
+        });
+      };
+
+      const components = componentSources.flatMap(({ value, transformed }) =>
+        collectComponentEntries(value, transformed)
+      );
+
+      const keywordData = resolveKeywordDataForValue(targetValue, baseRows);
+
+      return {
+        entry: createEmptyDecompositionEntry({
+          value: targetValue,
+          keyword: keywordData?.keyword ?? null,
+          bookOrder: keywordData?.bookOrder ?? null,
+          components,
+        }),
+        rows: baseRows,
+      };
+    };
+
+    const { entry: mainEntry } = buildDecompositionEntry(resolvedQueryValue, {
+      rows: matchedRows,
+    });
+    const {
+      valueKeyword: mainKeyword,
+      valueBookOrder: mainBookOrder,
+      components: mainComponents,
+    } = mainEntry;
+
+    const getNeighbor = (stmt, order) => {
+      if (typeof order !== "number") return null;
+
+      stmt.bind([order]);
+
+      if (!stmt.step()) {
+        stmt.reset();
+        return null;
+      }
+
+      const { simplified, book_order, traditional } = stmt.getAsObject();
+      stmt.reset();
+
+      return {
+        simplified: simplified || null,
+        traditional: traditional || null,
+        bookOrder: typeof book_order === "number" ? book_order : null,
+      };
+    };
+
+    const previousBook = getNeighbor(previousBookOrderStmt, mainBookOrder);
+    const nextBook = getNeighbor(nextBookOrderStmt, mainBookOrder);
+
+    const enrichedRows = matchedRows.map((row) => ({
+      ...row,
+      keyword: mainKeyword,
+      decompositionComponents: mainComponents,
+    }));
+
+    const characters = Array.from(resolvedQueryValue).filter(
+      (char) => char.trim().length > 0
+    );
+    const decompositionEntries =
+      characters.length === 1
+        ? [mainEntry]
+        : characters.map((char) => buildDecompositionEntry(char).entry);
+
+    const findRowForValue = (lookupValue) =>
+      matchedRows.find(
+        (row) =>
+          row.simplified === lookupValue || row.traditional === lookupValue
+      );
+
+    const currentRow = findRowForValue(resolvedQueryValue);
+    const currentSimplified =
+      currentRow?.simplified ?? resolvedQueryValue ?? null;
+    const currentTraditional = currentRow?.traditional ?? null;
+
+    const decompositions = decompositionEntries.length
+      ? decompositionEntries
+      : createEmptyDecompositionList();
+
+    return {
+      decompositions,
+      bookOrderNav: {
+        current:
+          mainBookOrder != null
+            ? {
+                simplified: currentSimplified,
+                traditional: currentTraditional,
+                bookOrder: mainBookOrder,
+              }
+            : null,
+        previous: previousBook,
+        next: nextBook,
+      },
+      enrichedRows,
+    };
+  };
+
   const runQuery = (value) => {
     if (!db) return;
 
@@ -803,360 +1174,35 @@ function Dashboard({ db }) {
 
     try {
       if (!trimmedValue) {
-        setResults([]);
-        setDecompositions(createEmptyDecompositionList());
-        setBookOrderNav(createEmptyBookOrderNav());
+        resetQueryState();
         return;
       }
 
-      let resolvedQueryValue = trimmedValue;
-
-      const traditionRows = fetchHanziRows("traditional", trimmedValue);
-      const simplifiedRows = fetchHanziRows("simplified", trimmedValue);
-
-      let matchedRows = uniqueById([...traditionRows, ...simplifiedRows], "id");
+      const { matchedRows, resolvedQueryValue } =
+        resolveMatchedRows(trimmedValue);
 
       if (!matchedRows.length) {
-        const keywordMatches = fetchKeywordRowsByKeyword(trimmedValue);
-        const simplifiedCandidates = keywordMatches
-          .map((row) => row.simplified)
-          .filter(Boolean);
-        const keywordMatchedRows = uniqueById(
-          simplifiedCandidates.flatMap((candidate) =>
-            fetchHanziRows("simplified", candidate)
-          ),
-          "id"
-        );
-
-        if (keywordMatchedRows.length) {
-          matchedRows = keywordMatchedRows;
-          resolvedQueryValue =
-            simplifiedCandidates.find((candidate) => candidate) ?? trimmedValue;
-        }
-      }
-
-      if (!matchedRows.length) {
-        const pinyinMatches = uniqueById(
-          fetchHanziRowsByPartialMatch("pinyin", trimmedValue, 10),
-          "id"
-        );
-
-        if (pinyinMatches.length) {
-          matchedRows = pinyinMatches;
-          resolvedQueryValue = pinyinMatches[0]?.simplified ?? trimmedValue;
-        }
-      }
-
-      if (!matchedRows.length) {
-        const englishMatches = uniqueById(
-          fetchHanziRowsByPartialMatch("english", trimmedValue, 10),
-          "id"
-        );
-
-        if (englishMatches.length) {
-          matchedRows = englishMatches;
-          resolvedQueryValue = englishMatches[0]?.simplified ?? trimmedValue;
-        }
-      }
-
-      if (!matchedRows.length) {
-        setResults([]);
-        setDecompositions(createEmptyDecompositionList());
-        setBookOrderNav(createEmptyBookOrderNav());
+        resetQueryState();
         return;
       }
 
       setHistory((prevHistory) => pushHistory(prevHistory, trimmedValue));
 
-      const decompositionStmt = db.prepare(
-        "SELECT left_component, right_component FROM hanzi_decomposition WHERE component = ?"
-      );
-      const keywordStmt = db.prepare(
-        "SELECT keyword, book_order FROM hanzi_keywords WHERE simplified = ?"
-      );
-      const previousBookOrderStmt = db.prepare(
-        `SELECT simplified, book_order, traditional
-         FROM hanzi_keywords
-         WHERE book_order < ?
-         ORDER BY book_order DESC
-         LIMIT 1`
-      );
-
-      const nextBookOrderStmt = db.prepare(
-        `SELECT simplified, book_order, traditional
-         FROM hanzi_keywords
-         WHERE book_order > ?
-         ORDER BY book_order ASC
-         LIMIT 1`
-      );
-
-      const lookupDecomposition = (lookupValue) => {
-        if (!lookupValue) return { left: null, right: null };
-
-        decompositionStmt.bind([lookupValue]);
-
-        if (!decompositionStmt.step()) {
-          decompositionStmt.reset();
-          return { left: null, right: null };
-        }
-
-        const { left_component, right_component } =
-          decompositionStmt.getAsObject();
-        decompositionStmt.reset();
-
-        return {
-          left: left_component || null,
-          right: right_component || null,
-        };
-      };
-
-      const lookupKeywordBySimplified = (lookupValue) => {
-        if (!lookupValue) return null;
-
-        keywordStmt.bind([lookupValue]);
-
-        if (!keywordStmt.step()) {
-          keywordStmt.reset();
-          return null;
-        }
-
-        const { keyword, book_order } = keywordStmt.getAsObject();
-        keywordStmt.reset();
-
-        return {
-          keyword: keyword || null,
-          bookOrder: typeof book_order === "number" ? book_order : null,
-        };
-      };
-
-      const fetchComponentRows = (lookupValue) => {
-        if (!lookupValue) return [];
-
-        return uniqueById(
-          [
-            ...fetchHanziRows("traditional", lookupValue),
-            ...fetchHanziRows("simplified", lookupValue),
-          ],
-          "id"
-        );
-      };
-
-      const resolveKeywordDataForValue = (lookupValue, candidateRows) => {
-        const normalizedLookup =
-          typeof lookupValue === "string"
-            ? lookupValue.replace(/\*/g, "").trim()
-            : lookupValue ?? null;
-        const valueToUse =
-          typeof normalizedLookup === "string" && normalizedLookup.length === 0
-            ? null
-            : normalizedLookup;
-
-        if (!valueToUse) return null;
-
-        const rowsToUse =
-          candidateRows !== undefined
-            ? candidateRows
-            : fetchComponentRows(valueToUse);
-        const simplifiedCandidate =
-          rowsToUse.find((row) => row.simplified)?.simplified ??
-          rowsToUse[0]?.simplified ??
-          null;
-
-        const simplifiedValue = simplifiedCandidate ?? valueToUse;
-
-        return lookupKeywordBySimplified(simplifiedValue);
-      };
+      const statements = prepareDecompositionStatements(db);
 
       try {
-        const buildDecompositionEntry = (targetValue, { rows = [] } = {}) => {
-          if (!targetValue) {
-            return {
-              entry: createEmptyDecompositionEntry({
-                value: targetValue ?? null,
-              }),
-              rows: [],
-            };
-          }
+        const { decompositions, bookOrderNav, enrichedRows } =
+          buildDecompositionResult({
+            matchedRows,
+            resolvedQueryValue,
+            statements,
+          });
 
-          const { left: entryLeft, right: entryRight } =
-            lookupDecomposition(targetValue);
-
-          let resolvedLeft = entryLeft;
-          let resolvedRight = entryRight;
-
-          if (resolvedLeft === "*") {
-            resolvedLeft =
-              resolvedRight && resolvedRight !== "*" ? resolvedRight : null;
-          }
-
-          if (resolvedRight === "*") {
-            resolvedRight =
-              resolvedLeft && resolvedLeft !== "*" ? resolvedLeft : null;
-          }
-
-          const normalizeComponentValue = (component) => {
-            if (component === null || component === undefined) {
-              return { value: null, transformed: false };
-            }
-
-            if (typeof component !== "string") {
-              return { value: component ?? null, transformed: false };
-            }
-
-            const trimmedComponent = component.trim();
-
-            if (component === "*") {
-              return { value: null, transformed: false };
-            }
-
-            if (component.includes("*")) {
-              const trimmedValue = component.replace(/\*/g, "").trim();
-
-              return {
-                value: trimmedValue || null,
-                transformed: true,
-              };
-            }
-
-            if (trimmedComponent.length === 0) {
-              return { value: null, transformed: false };
-            }
-
-            return { value: trimmedComponent, transformed: false };
-          };
-
-          const normalizedLeft = normalizeComponentValue(resolvedLeft);
-          const normalizedRight = normalizeComponentValue(resolvedRight);
-
-          const baseRows =
-            rows.length > 0 ? rows : fetchComponentRows(targetValue);
-          const componentSources = [normalizedLeft, normalizedRight].filter(
-            (component) => component.value
-          );
-
-          const collectComponentEntries = (componentValue, transformed) => {
-            if (!componentValue || typeof componentValue !== "string") {
-              return [];
-            }
-
-            const characters = Array.from(componentValue).filter(
-              (char) => char.trim().length > 0
-            );
-
-            return characters.map((char) => {
-              const charKeywordData = resolveKeywordDataForValue(char);
-
-              return {
-                value: char,
-                keyword: charKeywordData?.keyword ?? null,
-                bookOrder:
-                  typeof charKeywordData?.bookOrder === "number"
-                    ? charKeywordData.bookOrder
-                    : null,
-                transformed,
-              };
-            });
-          };
-
-          const components = componentSources.flatMap(
-            ({ value, transformed }) =>
-              collectComponentEntries(value, transformed)
-          );
-
-          const keywordData = resolveKeywordDataForValue(targetValue, baseRows);
-
-          return {
-            entry: createEmptyDecompositionEntry({
-              value: targetValue,
-              keyword: keywordData?.keyword ?? null,
-              bookOrder: keywordData?.bookOrder ?? null,
-              components,
-            }),
-            rows: baseRows,
-          };
-        };
-
-        const { entry: mainEntry } = buildDecompositionEntry(
-          resolvedQueryValue,
-          { rows: matchedRows }
-        );
-        const {
-          valueKeyword: mainKeyword,
-          valueBookOrder: mainBookOrder,
-          components: mainComponents,
-        } = mainEntry;
-
-        const getNeighbor = (stmt, order) => {
-          if (typeof order !== "number") return null;
-
-          stmt.bind([order]);
-
-          if (!stmt.step()) {
-            stmt.reset();
-            return null;
-          }
-
-          const { simplified, book_order, traditional } = stmt.getAsObject();
-          stmt.reset();
-
-          return {
-            simplified: simplified || null,
-            traditional: traditional || null,
-            bookOrder: typeof book_order === "number" ? book_order : null,
-          };
-        };
-
-        const previousBook = getNeighbor(previousBookOrderStmt, mainBookOrder);
-        const nextBook = getNeighbor(nextBookOrderStmt, mainBookOrder);
-
-        const enrichedRows = matchedRows.map((row) => ({
-          ...row,
-          keyword: mainKeyword,
-          decompositionComponents: mainComponents,
-        }));
-
-        const characters = Array.from(resolvedQueryValue).filter(
-          (char) => char.trim().length > 0
-        );
-        const decompositionEntries =
-          characters.length === 1
-            ? [mainEntry]
-            : characters.map((char) => buildDecompositionEntry(char).entry);
-
-        const findRowForValue = (lookupValue) =>
-          matchedRows.find(
-            (row) =>
-              row.simplified === lookupValue || row.traditional === lookupValue
-          );
-
-        const currentRow = findRowForValue(resolvedQueryValue);
-        const currentSimplified =
-          currentRow?.simplified ?? resolvedQueryValue ?? null;
-        const currentTraditional = currentRow?.traditional ?? null;
-
-        setDecompositions(
-          decompositionEntries.length
-            ? decompositionEntries
-            : createEmptyDecompositionList()
-        );
-        setBookOrderNav({
-          current:
-            mainBookOrder != null
-              ? {
-                  simplified: currentSimplified,
-                  traditional: currentTraditional,
-                  bookOrder: mainBookOrder,
-                }
-              : null,
-          previous: previousBook,
-          next: nextBook,
-        });
+        setDecompositions(decompositions);
+        setBookOrderNav(bookOrderNav);
         setResults(enrichedRows);
       } finally {
-        decompositionStmt.free();
-        keywordStmt.free();
-        previousBookOrderStmt.free();
-        nextBookOrderStmt.free();
+        statements.freeAll();
       }
     } catch (err) {
       setError(err.toString());
