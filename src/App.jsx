@@ -776,7 +776,7 @@ function Dashboard({ db }) {
 
     const rows = [];
     const stmt = db.prepare(
-      `SELECT simplified, traditional, additional_forms
+      `SELECT id, simplified, traditional, keyword, book_order, additional_forms
        FROM hanzi_keywords
        WHERE additional_forms IS NOT NULL
          AND additional_forms LIKE ?`
@@ -804,11 +804,38 @@ function Dashboard({ db }) {
           );
           if (hasMatch) {
             rows.push({
+              id: row.id,
               simplified: row.simplified,
               traditional: row.traditional,
+              keyword: row.keyword,
+              book_order: row.book_order,
+              additional_forms: rawAdditionalForms,
             });
           }
         }
+      }
+    } finally {
+      stmt.free();
+    }
+
+    return rows;
+  };
+
+  const fetchKeywordRowsByExactForm = (value) => {
+    if (!db || !value) return [];
+
+    const rows = [];
+    const stmt = db.prepare(
+      `SELECT id, simplified, traditional, keyword, book_order
+       FROM hanzi_keywords
+       WHERE simplified = ? OR traditional = ?`
+    );
+
+    try {
+      stmt.bind([value, value]);
+
+      while (stmt.step()) {
+        rows.push(stmt.getAsObject());
       }
     } finally {
       stmt.free();
@@ -974,13 +1001,12 @@ function Dashboard({ db }) {
   const fetchComponentRowsForValue = (lookupValue) => {
     if (!lookupValue) return [];
 
-    return uniqueById(
-      [
-        ...fetchHanziRows("traditional", lookupValue),
-        ...fetchHanziRows("simplified", lookupValue),
-      ],
-      "id"
-    );
+    const keywordRows = [
+      ...fetchKeywordRowsByExactForm(lookupValue),
+      ...fetchKeywordRowsByAdditionalForm(lookupValue),
+    ];
+
+    return uniqueById(keywordRows, "id");
   };
 
   const normalizeDecompositionComponent = (component) => {
@@ -1056,6 +1082,19 @@ function Dashboard({ db }) {
     lookupKeywordBySimplified,
     fetchComponentRows,
   }) => {
+    const normalizeBookOrderValue = (value) => {
+      if (typeof value === "number" && Number.isFinite(value)) {
+        return value;
+      }
+
+      if (value === null || value === undefined) {
+        return null;
+      }
+
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : null;
+    };
+
     return (lookupValue, candidateRows) => {
       const normalizedLookup =
         typeof lookupValue === "string"
@@ -1072,6 +1111,26 @@ function Dashboard({ db }) {
         candidateRows !== undefined
           ? candidateRows
           : fetchComponentRows(valueToUse);
+
+      const keywordRow = rowsToUse.find((row) => {
+        if (!row) return false;
+
+        const candidateKeyword =
+          typeof row.keyword === "string" ? row.keyword.trim() : "";
+
+        return candidateKeyword.length > 0;
+      });
+
+      if (keywordRow) {
+        const rawBookOrder =
+          keywordRow.bookOrder ?? keywordRow.book_order ?? null;
+
+        return {
+          keyword: keywordRow.keyword.trim(),
+          bookOrder: normalizeBookOrderValue(rawBookOrder),
+        };
+      }
+
       const simplifiedCandidate =
         rowsToUse.find((row) => row.simplified)?.simplified ??
         rowsToUse[0]?.simplified ??
@@ -1141,8 +1200,7 @@ function Dashboard({ db }) {
       const normalizedLeft = normalizeDecompositionComponent(resolvedLeft);
       const normalizedRight = normalizeDecompositionComponent(resolvedRight);
 
-      const baseRows =
-        rows.length > 0 ? rows : fetchComponentRows(targetValue);
+      const baseRows = rows.length > 0 ? rows : fetchComponentRows(targetValue);
       const componentSources = [normalizedLeft, normalizedRight].filter(
         (component) => component.value
       );
@@ -1216,11 +1274,8 @@ function Dashboard({ db }) {
     resolvedQueryValue,
     statements,
   }) => {
-    const {
-      buildDecompositionEntry,
-      getPreviousBook,
-      getNextBook,
-    } = createDecompositionHelpers(statements);
+    const { buildDecompositionEntry, getPreviousBook, getNextBook } =
+      createDecompositionHelpers(statements);
 
     const { entry: mainEntry } = buildDecompositionEntry(resolvedQueryValue, {
       rows: matchedRows,
