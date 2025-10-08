@@ -10,7 +10,7 @@ const QUERY_PARAM = "value";
 const VIEW_PARAM = "view";
 const VIEW_KEYWORDS = "keywords";
 const DEFAULT_VIEW = "definition";
-const QUERY_DEBOUNCE_MS = 1000;
+const QUERY_DEBOUNCE_MS = 800;
 
 function normalizeView(value) {
   return value === VIEW_KEYWORDS ? VIEW_KEYWORDS : DEFAULT_VIEW;
