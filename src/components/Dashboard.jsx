@@ -45,7 +45,12 @@ export default function Dashboard({ db, onError }) {
   }, [query]);
 
   useEffect(() => {
-    if (!db) return;
+    if (!db) {
+      setResults([]);
+      setDecompositions(createEmptyDecompositionList());
+      setBookOrderNav(createEmptyBookOrderNav());
+      return;
+    }
 
     const trimmedValue = (debouncedQuery ?? "").trim();
 
@@ -56,12 +61,10 @@ export default function Dashboard({ db, onError }) {
       return;
     }
 
-    const fetchers = createFetchers(db);
-
     try {
       const { matchedRows, resolvedQueryValue } = resolveQueryMatches(
-        trimmedValue,
-        fetchers
+        db,
+        trimmedValue
       );
 
       if (!matchedRows.length) {
@@ -82,7 +85,7 @@ export default function Dashboard({ db, onError }) {
           matchedRows,
           resolvedQueryValue,
           statements,
-          fetchComponentRows: fetchers.fetchComponentRowsForValue,
+          fetchComponentRows: (value) => fetchComponentRowsForValue(db, value),
         });
 
         setDecompositions(nextDecompositions);
@@ -282,208 +285,177 @@ export default function Dashboard({ db, onError }) {
   );
 }
 
-function createFetchers(db) {
-  if (!db) {
-    const empty = () => [];
-    return {
-      fetchHanziRows: empty,
-      fetchKeywordRowsByKeyword: empty,
-      fetchKeywordRowsByAdditionalForm: empty,
-      fetchKeywordRowsByExactForm: empty,
-      fetchHanziRowsByPartialMatch: empty,
-      fetchComponentRowsForValue: empty,
-    };
+function fetchHanziRows(db, column, value) {
+  if (!db || !value) return [];
+  if (column !== "traditional" && column !== "simplified") {
+    throw new Error(`Unsupported column: ${column}`);
   }
 
-  const fetchHanziRows = (column, value) => {
-    if (!value) return [];
-    if (column !== "traditional" && column !== "simplified") {
-      throw new Error(`Unsupported column: ${column}`);
+  const rows = [];
+  const stmt = db.prepare(`SELECT * FROM hanzi WHERE ${column} = ?`);
+
+  try {
+    stmt.bind([value]);
+    while (stmt.step()) {
+      rows.push(stmt.getAsObject());
     }
+  } finally {
+    stmt.free();
+  }
 
-    const rows = [];
-    const stmt = db.prepare(`SELECT * FROM hanzi WHERE ${column} = ?`);
-
-    try {
-      stmt.bind([value]);
-      while (stmt.step()) {
-        rows.push(stmt.getAsObject());
-      }
-    } finally {
-      stmt.free();
-    }
-
-    return rows;
-  };
-
-  const fetchKeywordRowsByKeyword = (keywordValue) => {
-    if (!keywordValue) return [];
-
-    const rows = [];
-    const stmt = db.prepare(
-      `SELECT simplified, keyword, book_order, traditional
-       FROM hanzi_keywords
-       WHERE keyword LIKE ?
-       ORDER BY (keyword = ?) DESC, (book_order IS NULL), book_order ASC`
-    );
-
-    try {
-      stmt.bind([`%${keywordValue}%`, keywordValue]);
-      while (stmt.step()) {
-        rows.push(stmt.getAsObject());
-      }
-    } finally {
-      stmt.free();
-    }
-
-    return rows;
-  };
-
-  const fetchKeywordRowsByAdditionalForm = (formValue) => {
-    if (!formValue) return [];
-
-    const rows = [];
-    const stmt = db.prepare(
-      `SELECT id, simplified, traditional, keyword, book_order, additional_forms
-       FROM hanzi_keywords
-       WHERE additional_forms IS NOT NULL
-         AND additional_forms LIKE ?`
-    );
-
-    try {
-      stmt.bind([`%"${formValue}"%`]);
-      while (stmt.step()) {
-        const row = stmt.getAsObject();
-        const parsedAdditionalForms = safeParseArray(row.additional_forms);
-        if (parsedAdditionalForms.includes(formValue)) {
-          rows.push({
-            id: row.id,
-            simplified: row.simplified,
-            traditional: row.traditional,
-            keyword: row.keyword,
-            book_order: row.book_order,
-            additional_forms: row.additional_forms,
-          });
-        }
-      }
-    } finally {
-      stmt.free();
-    }
-
-    return rows;
-  };
-
-  const fetchKeywordRowsByExactForm = (value) => {
-    if (!value) return [];
-
-    const rows = [];
-    const stmt = db.prepare(
-      `SELECT id, simplified, traditional, keyword, book_order
-       FROM hanzi_keywords
-       WHERE simplified = ? OR traditional = ?`
-    );
-
-    try {
-      stmt.bind([value, value]);
-      while (stmt.step()) {
-        rows.push(stmt.getAsObject());
-      }
-    } finally {
-      stmt.free();
-    }
-
-    return rows;
-  };
-
-  const fetchHanziRowsByPartialMatch = (column, value, limit = 10) => {
-    if (!value) return [];
-    if (column !== "pinyin" && column !== "english") {
-      throw new Error(`Unsupported partial match column: ${column}`);
-    }
-
-    const trimmedValue = value.trim();
-    if (!trimmedValue) return [];
-
-    const rows = [];
-    let stmt;
-
-    try {
-      if (column === "english") {
-        const normalizedSearch = trimmedValue.replace(/\s+/g, " ");
-        const lowerSearch = normalizedSearch.toLowerCase();
-        const substringPattern = `%${lowerSearch}%`;
-        const wordBoundaryNeedle = ` ${lowerSearch} `;
-        const normalizedEnglishExpression =
-          "LOWER(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(' ' || REPLACE(english, '/', ' ') || ' ', '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '))";
-
-        stmt = db.prepare(
-          `SELECT * FROM hanzi
-           WHERE LOWER(english) LIKE ?
-           ORDER BY
-             CASE
-               WHEN LOWER(english) = ? THEN 0
-               WHEN instr(${normalizedEnglishExpression}, ?) > 0 THEN 1
-               ELSE 2
-             END,
-             LENGTH(english) ASC
-           LIMIT ?`
-        );
-
-        stmt.bind([substringPattern, lowerSearch, wordBoundaryNeedle, limit]);
-      } else {
-        stmt = db.prepare(
-          `SELECT * FROM hanzi
-           WHERE ${column} LIKE ?
-           LIMIT ?`
-        );
-        stmt.bind([`%${trimmedValue}%`, limit]);
-      }
-
-      while (stmt.step()) {
-        rows.push(stmt.getAsObject());
-      }
-    } finally {
-      if (stmt) stmt.free();
-    }
-
-    return rows;
-  };
-
-  const fetchComponentRowsForValue = (lookupValue) => {
-    if (!lookupValue) return [];
-
-    return uniqueById(
-      [
-        ...fetchKeywordRowsByExactForm(lookupValue),
-        ...fetchKeywordRowsByAdditionalForm(lookupValue),
-      ],
-      "id"
-    );
-  };
-
-  return {
-    fetchHanziRows,
-    fetchKeywordRowsByKeyword,
-    fetchKeywordRowsByAdditionalForm,
-    fetchKeywordRowsByExactForm,
-    fetchHanziRowsByPartialMatch,
-    fetchComponentRowsForValue,
-  };
+  return rows;
 }
 
-function resolveQueryMatches(trimmedValue, fetchers) {
-  const {
-    fetchHanziRows,
-    fetchKeywordRowsByExactForm,
-    fetchKeywordRowsByAdditionalForm,
-    fetchKeywordRowsByKeyword,
-    fetchHanziRowsByPartialMatch,
-  } = fetchers;
+function fetchKeywordRowsByKeyword(db, keywordValue) {
+  if (!db || !keywordValue) return [];
 
+  const rows = [];
+  const stmt = db.prepare(
+    `SELECT simplified, keyword, book_order, traditional
+     FROM hanzi_keywords
+     WHERE keyword LIKE ?
+     ORDER BY (keyword = ?) DESC, (book_order IS NULL), book_order ASC`
+  );
+
+  try {
+    stmt.bind([`%${keywordValue}%`, keywordValue]);
+    while (stmt.step()) {
+      rows.push(stmt.getAsObject());
+    }
+  } finally {
+    stmt.free();
+  }
+
+  return rows;
+}
+
+function fetchKeywordRowsByAdditionalForm(db, formValue) {
+  if (!db || !formValue) return [];
+
+  const rows = [];
+  const stmt = db.prepare(
+    `SELECT id, simplified, traditional, keyword, book_order, additional_forms
+     FROM hanzi_keywords
+     WHERE additional_forms IS NOT NULL
+       AND additional_forms LIKE ?`
+  );
+
+  try {
+    stmt.bind([`%"${formValue}"%`]);
+    while (stmt.step()) {
+      const row = stmt.getAsObject();
+      const parsedAdditionalForms = safeParseArray(row.additional_forms);
+      if (parsedAdditionalForms.includes(formValue)) {
+        rows.push({
+          id: row.id,
+          simplified: row.simplified,
+          traditional: row.traditional,
+          keyword: row.keyword,
+          book_order: row.book_order,
+          additional_forms: row.additional_forms,
+        });
+      }
+    }
+  } finally {
+    stmt.free();
+  }
+
+  return rows;
+}
+
+function fetchKeywordRowsByExactForm(db, value) {
+  if (!db || !value) return [];
+
+  const rows = [];
+  const stmt = db.prepare(
+    `SELECT id, simplified, traditional, keyword, book_order
+     FROM hanzi_keywords
+     WHERE simplified = ? OR traditional = ?`
+  );
+
+  try {
+    stmt.bind([value, value]);
+    while (stmt.step()) {
+      rows.push(stmt.getAsObject());
+    }
+  } finally {
+    stmt.free();
+  }
+
+  return rows;
+}
+
+function fetchHanziRowsByPartialMatch(db, column, value, limit = 10) {
+  if (!db || !value) return [];
+  if (column !== "pinyin" && column !== "english") {
+    throw new Error(`Unsupported partial match column: ${column}`);
+  }
+
+  const trimmedValue = value.trim();
+  if (!trimmedValue) return [];
+
+  const rows = [];
+  let stmt;
+
+  try {
+    if (column === "english") {
+      const normalizedSearch = trimmedValue.replace(/\s+/g, " ");
+      const lowerSearch = normalizedSearch.toLowerCase();
+      const substringPattern = `%${lowerSearch}%`;
+      const wordBoundaryNeedle = ` ${lowerSearch} `;
+      const normalizedEnglishExpression =
+        "LOWER(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(' ' || REPLACE(english, '/', ' ') || ' ', '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '))";
+
+      stmt = db.prepare(
+        `SELECT * FROM hanzi
+         WHERE LOWER(english) LIKE ?
+         ORDER BY
+           CASE
+             WHEN LOWER(english) = ? THEN 0
+             WHEN instr(${normalizedEnglishExpression}, ?) > 0 THEN 1
+             ELSE 2
+           END,
+           LENGTH(english) ASC
+         LIMIT ?`
+      );
+
+      stmt.bind([substringPattern, lowerSearch, wordBoundaryNeedle, limit]);
+    } else {
+      stmt = db.prepare(
+        `SELECT * FROM hanzi
+         WHERE ${column} LIKE ?
+         LIMIT ?`
+      );
+      stmt.bind([`%${trimmedValue}%`, limit]);
+    }
+
+    while (stmt.step()) {
+      rows.push(stmt.getAsObject());
+    }
+  } finally {
+    if (stmt) stmt.free();
+  }
+
+  return rows;
+}
+
+function fetchComponentRowsForValue(db, lookupValue) {
+  if (!db || !lookupValue) return [];
+
+  return uniqueById(
+    [
+      ...fetchKeywordRowsByExactForm(db, lookupValue),
+      ...fetchKeywordRowsByAdditionalForm(db, lookupValue),
+    ],
+    "id"
+  );
+}
+
+function resolveQueryMatches(db, trimmedValue) {
   const directRows = uniqueById(
     [
-      ...fetchHanziRows("traditional", trimmedValue),
-      ...fetchHanziRows("simplified", trimmedValue),
+      ...fetchHanziRows(db, "traditional", trimmedValue),
+      ...fetchHanziRows(db, "simplified", trimmedValue),
     ],
     "id"
   );
@@ -492,21 +464,21 @@ function resolveQueryMatches(trimmedValue, fetchers) {
   }
 
   const exactResult = resolveFromKeywordRows(
-    fetchKeywordRowsByExactForm(trimmedValue),
+    db,
+    fetchKeywordRowsByExactForm(db, trimmedValue),
     trimmedValue,
-    fetchers,
     { preferExact: true }
   );
   if (exactResult) return exactResult;
 
   const additionalResult = resolveFromKeywordRows(
-    fetchKeywordRowsByAdditionalForm(trimmedValue),
+    db,
+    fetchKeywordRowsByAdditionalForm(db, trimmedValue),
     trimmedValue,
-    fetchers
   );
   if (additionalResult) return additionalResult;
 
-  const keywordMatches = fetchKeywordRowsByKeyword(trimmedValue);
+  const keywordMatches = fetchKeywordRowsByKeyword(db, trimmedValue);
   if (keywordMatches.length) {
     const simplifiedCandidates = keywordMatches
       .map((row) => row.simplified)
@@ -514,7 +486,7 @@ function resolveQueryMatches(trimmedValue, fetchers) {
 
     const keywordMatchedRows = uniqueById(
       simplifiedCandidates.flatMap((candidate) =>
-        fetchHanziRows("simplified", candidate)
+        fetchHanziRows(db, "simplified", candidate)
       ),
       "id"
     );
@@ -529,7 +501,7 @@ function resolveQueryMatches(trimmedValue, fetchers) {
   }
 
   const pinyinMatches = uniqueById(
-    fetchHanziRowsByPartialMatch("pinyin", trimmedValue, 10),
+    fetchHanziRowsByPartialMatch(db, "pinyin", trimmedValue, 10),
     "id"
   );
   if (pinyinMatches.length) {
@@ -540,7 +512,7 @@ function resolveQueryMatches(trimmedValue, fetchers) {
   }
 
   const englishMatches = uniqueById(
-    fetchHanziRowsByPartialMatch("english", trimmedValue, 10),
+    fetchHanziRowsByPartialMatch(db, "english", trimmedValue, 10),
     "id"
   );
   if (englishMatches.length) {
@@ -554,9 +526,9 @@ function resolveQueryMatches(trimmedValue, fetchers) {
 }
 
 function resolveFromKeywordRows(
+  db,
   rows,
   lookupValue,
-  fetchers,
   { preferExact = false } = {}
 ) {
   if (!rows.length) return null;
@@ -577,8 +549,8 @@ function resolveFromKeywordRows(
 
   const matchedRows = uniqueById(
     candidateValues.flatMap((candidate) => [
-      ...fetchers.fetchHanziRows("simplified", candidate),
-      ...fetchers.fetchHanziRows("traditional", candidate),
+      ...fetchHanziRows(db, "simplified", candidate),
+      ...fetchHanziRows(db, "traditional", candidate),
     ]),
     "id"
   );
