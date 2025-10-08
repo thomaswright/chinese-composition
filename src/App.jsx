@@ -847,17 +847,38 @@ function Dashboard({ db }) {
   const fetchHanziRowsByPartialMatch = (column, value, limit = 10) => {
     if (!db || !value) return [];
 
+    const searchValue = value.trim();
+    if (!searchValue) return [];
+
     if (column !== "pinyin" && column !== "english") {
       throw new Error(`Unsupported partial match column: ${column}`);
     }
 
     const rows = [];
-    const stmt = db.prepare(
-      `SELECT * FROM hanzi WHERE ${column} LIKE ? LIMIT ?`
-    );
+    const isEnglishSearch = column === "english";
+    const wordBoundaryPattern = `% ${searchValue} %`;
+    const baseQuery = isEnglishSearch
+      ? `SELECT * FROM hanzi
+         WHERE english LIKE ? COLLATE NOCASE
+         ORDER BY
+           CASE
+             WHEN english = ? COLLATE NOCASE THEN 0
+             WHEN (' ' || english || ' ') LIKE ? COLLATE NOCASE THEN 1
+             ELSE 2
+           END,
+           LENGTH(english) ASC
+         LIMIT ?`
+      : `SELECT * FROM hanzi
+         WHERE ${column} LIKE ?
+         LIMIT ?`;
+    const stmt = db.prepare(baseQuery);
 
     try {
-      stmt.bind([`%${value}%`, limit]);
+      if (isEnglishSearch) {
+        stmt.bind([`%${searchValue}%`, searchValue, wordBoundaryPattern, limit]);
+      } else {
+        stmt.bind([`%${searchValue}%`, limit]);
+      }
 
       while (stmt.step()) {
         rows.push(stmt.getAsObject());
