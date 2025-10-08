@@ -918,6 +918,40 @@ function Dashboard({ db }) {
     let matchedRows = uniqueById([...traditionRows, ...simplifiedRows], "id");
 
     if (!matchedRows.length) {
+      const exactFormMatches = fetchKeywordRowsByExactForm(trimmedValue);
+
+      if (exactFormMatches.length) {
+        const candidateValueSet = new Set();
+        exactFormMatches.forEach(({ simplified, traditional }) => {
+          if (simplified) candidateValueSet.add(simplified);
+          if (traditional) candidateValueSet.add(traditional);
+        });
+
+        if (!candidateValueSet.has(trimmedValue)) {
+          candidateValueSet.add(trimmedValue);
+        }
+
+        const candidateValues = Array.from(candidateValueSet);
+        const exactFormRows = uniqueById(
+          candidateValues.flatMap((candidate) => [
+            ...fetchHanziRows("simplified", candidate),
+            ...fetchHanziRows("traditional", candidate),
+          ]),
+          "id"
+        );
+
+        if (exactFormRows.length) {
+          matchedRows = exactFormRows;
+          const canonicalMatch =
+            candidateValues.find((candidate) => candidate === trimmedValue) ??
+            candidateValues[0] ??
+            trimmedValue;
+          resolvedQueryValue = canonicalMatch;
+        }
+      }
+    }
+
+    if (!matchedRows.length) {
       const additionalFormMatches =
         fetchKeywordRowsByAdditionalForm(trimmedValue);
 
