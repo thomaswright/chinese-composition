@@ -847,44 +847,57 @@ function Dashboard({ db }) {
   const fetchHanziRowsByPartialMatch = (column, value, limit = 10) => {
     if (!db || !value) return [];
 
-    const searchValue = value.trim();
-    if (!searchValue) return [];
-
     if (column !== "pinyin" && column !== "english") {
       throw new Error(`Unsupported partial match column: ${column}`);
     }
 
+    const trimmedValue = value.trim();
+    if (!trimmedValue) return [];
+
     const rows = [];
     const isEnglishSearch = column === "english";
-    const wordBoundaryPattern = `% ${searchValue} %`;
-    const baseQuery = isEnglishSearch
-      ? `SELECT * FROM hanzi
-         WHERE english LIKE ? COLLATE NOCASE
-         ORDER BY
-           CASE
-             WHEN english = ? COLLATE NOCASE THEN 0
-             WHEN (' ' || english || ' ') LIKE ? COLLATE NOCASE THEN 1
-             ELSE 2
-           END,
-           LENGTH(english) ASC
-         LIMIT ?`
-      : `SELECT * FROM hanzi
-         WHERE ${column} LIKE ?
-         LIMIT ?`;
-    const stmt = db.prepare(baseQuery);
+    let stmt;
 
     try {
       if (isEnglishSearch) {
-        stmt.bind([`%${searchValue}%`, searchValue, wordBoundaryPattern, limit]);
+        const normalizedSearch = trimmedValue.replace(/\s+/g, " ");
+        const lowerSearch = normalizedSearch.toLowerCase();
+        const substringPattern = `%${lowerSearch}%`;
+        const wordBoundaryNeedle = ` ${lowerSearch} `;
+        const normalizedEnglishExpression =
+          "LOWER(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(' ' || REPLACE(english, '/', ' ') || ' ', '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '))";
+
+        stmt = db.prepare(
+          `SELECT * FROM hanzi
+           WHERE LOWER(english) LIKE ?
+           ORDER BY
+             CASE
+               WHEN LOWER(english) = ? THEN 0
+               WHEN instr(${normalizedEnglishExpression}, ?) > 0 THEN 1
+               ELSE 2
+             END,
+             LENGTH(english) ASC
+           LIMIT ?`
+        );
+
+        stmt.bind([substringPattern, lowerSearch, wordBoundaryNeedle, limit]);
       } else {
-        stmt.bind([`%${searchValue}%`, limit]);
+        stmt = db.prepare(
+          `SELECT * FROM hanzi
+           WHERE ${column} LIKE ?
+           LIMIT ?`
+        );
+
+        stmt.bind([`%${trimmedValue}%`, limit]);
       }
 
       while (stmt.step()) {
         rows.push(stmt.getAsObject());
       }
     } finally {
-      stmt.free();
+      if (stmt) {
+        stmt.free();
+      }
     }
 
     return rows;
