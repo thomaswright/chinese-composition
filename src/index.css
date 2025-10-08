@@ -1,1 +1,7 @@
 @import "tailwindcss";
+
+/* Allow copying text inside interactive buttons. */
+button {
+  -webkit-user-select: text;
+  user-select: text;
+}
