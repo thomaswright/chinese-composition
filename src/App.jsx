@@ -1176,10 +1176,30 @@ function Dashboard({ db }) {
 
       if (!valueToUse) return null;
 
-      const rowsToUse =
-        candidateRows !== undefined
-          ? candidateRows
-          : fetchComponentRows(valueToUse);
+      let rowsToUse;
+      if (candidateRows !== undefined) {
+        rowsToUse = Array.isArray(candidateRows)
+          ? [...candidateRows]
+          : [candidateRows];
+      } else {
+        rowsToUse = fetchComponentRows(valueToUse);
+      }
+
+      const rowsContainKeyword = rowsToUse.some((row) => {
+        if (!row) return false;
+
+        const candidateKeyword =
+          typeof row.keyword === "string" ? row.keyword.trim() : "";
+
+        return candidateKeyword.length > 0;
+      });
+
+      if (!rowsContainKeyword) {
+        const supplementalRows = fetchComponentRows(valueToUse);
+        if (supplementalRows.length) {
+          rowsToUse = [...rowsToUse, ...supplementalRows];
+        }
+      }
 
       const keywordRow = rowsToUse.find((row) => {
         if (!row) return false;
